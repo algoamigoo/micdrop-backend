@@ -1,42 +1,81 @@
+# docs/ApiContract.md
+
 # MicDrop API Contract
 
-**Base URL:** `localhost:3000/v1`
+**Base URL:** `http://localhost:3000/api/v1`  
+**Health check:** `GET /healthz`
 
----
+> Important: the previous contract used `/v1`, `user_name` in vote bodies, nested prompt+responses, `new_upvote_count`, and `/leaderboard`. Those are not implemented by the current router. This contract reflects the current MVP.
 
-## REST Endpoints Overview
+## 1. Response Envelope
 
-| Endpoint | Method | Purpose | Request Body | Response |
-| --- | --- | --- | --- | --- |
-| `/prompts` | GET | List all prompts with pagination and sorting | - | Array of prompts, total_count, limit, offset |
-| `/prompts` | POST | Create a new prompt | `{ user_name, body }` | Created prompt object |
-| `/prompts/{post_id}` | GET | Get a specific prompt with all responses | - | Prompt object + array of responses |
-| `/responses` | POST | Submit a response to a prompt | `{ user_name, post_id, body }` | Created response object |
-| `/responses/{response_id}` | GET | Get a specific response | - | Response object |
-| `/prompts/{post_id}/upvote` | POST | Upvote a prompt | `{ user_name }` | `{ success, new_upvote_count }` |
-| `/prompts/{post_id}/downvote` | POST | Downvote a prompt | `{ user_name }` | `{ success, new_upvote_count }` |
-| `/responses/{response_id}/upvote` | POST | Upvote a response | `{ user_name }` | `{ success, new_upvote_count }` |
-| `/responses/{response_id}/downvote` | POST | Downvote a response | `{ user_name }` | `{ success, new_upvote_count }` |
-| `/users/{user_name}` | GET | Get user profile and stats | - | User object with recent prompts/responses |
-| `/leaderboard` | GET | Get ranked users by total score | - | Array of users ranked by karma |
+Successful JSON responses are wrapped in `data`:
 
----
-
-## Query Parameters
-
-### `GET /prompts`
-- `sort` (default: `hot`): `hot`, `top`, `newest`, `controversial`
-- `limit` (default: `20`): Results per page (1-100)
-- `offset` (default: `0`): Pagination offset
-
----
-
-## Data Models
-
-### User
 ```json
 {
-  "user_id": 1,
+  "data": {
+    "post_id": 101,
+    "user_id": "user_123",
+    "body": "Things you don't want to hear from your surgeon",
+    "prompt_upvotes": 23,
+    "response_count": 45,
+    "created_at": "2026-09-20T12:00:00Z",
+    "updated_at": "2026-09-20T12:00:00Z"
+  }
+}
+```
+
+Errors are returned as:
+
+```json
+{
+  "error": "prompt not found"
+}
+```
+
+The current implementation does **not** return machine-readable error codes.
+
+## 2. Authentication / Identity
+
+MVP uses mock identity.
+
+- User creation: `user_id` is sent in the JSON body.
+- Prompt creation: `user_id` is sent in the JSON body.
+- Response creation: `user_id` is sent in the JSON body.
+- Voting: `X-User-ID` header is required.
+
+Example:
+
+```http
+X-User-ID: user_123
+```
+
+There is no token validation.
+
+## 3. Endpoints
+
+| Endpoint | Method | Auth | Request | Response |
+|---|---|---|---|---|
+| `/users` | POST | Body `user_id` | `{ user_id, user_name? }` | `201` User |
+| `/users/{userID}` | GET | None | Path `userID` | `200` User |
+| `/prompts` | POST | Body `user_id` | `{ user_id, body }` | `201` Prompt |
+| `/prompts` | GET | None | Query `sort`, `limit`, `offset` | `200` Prompt[] |
+| `/prompts/{postID}` | GET | None | Path `postID` | `200` Prompt |
+| `/prompts/{postID}/upvote` | POST | `X-User-ID` | No body | `200` Prompt |
+| `/prompts/{postID}/downvote` | POST | `X-User-ID` | No body | `200` Prompt |
+| `/prompts/{postID}/responses` | POST | Body `user_id` | `{ user_id, body }` | `201` Response |
+| `/prompts/{postID}/responses` | GET | None | Query `limit`, `offset` | `200` Response[] |
+| `/responses/{responseID}/upvote` | POST | `X-User-ID` | No body | `200` Response |
+| `/responses/{responseID}/downvote` | POST | `X-User-ID` | No body | `200` Response |
+| `/healthz` | GET | None | None | `200 { "status": "ok" }` |
+
+## 4. Data Models
+
+### User
+
+```json
+{
+  "user_id": "user_123",
   "user_name": "comedy_fan_42",
   "prompt_score": 42,
   "response_score": 157,
@@ -45,21 +84,13 @@
   "updated_at": "2026-09-26T15:45:00Z"
 }
 ```
-**Fields:**
-- `user_id`: Unique integer identifier
-- `user_name`: Unique username (3-50 chars)
-- `prompt_score`: Net upvotes (up - down) on all prompts by this user
-- `response_score`: Net upvotes (up - down) on all responses by this user
-- `total_score`: Sum of `prompt_score` + `response_score`
-- `created_at`: User creation timestamp
-- `updated_at`: Last update timestamp
 
 ### Prompt
+
 ```json
 {
   "post_id": 101,
-  "user_id": 1,
-  "user_name": "comedy_fan_42",
+  "user_id": "user_123",
   "body": "Things you don't want to hear from your surgeon",
   "prompt_upvotes": 23,
   "response_count": 45,
@@ -67,429 +98,283 @@
   "updated_at": "2026-09-20T12:00:00Z"
 }
 ```
-**Fields:**
-- `post_id`: Unique integer identifier
-- `user_id`: ID of the user who created the prompt
-- `user_name`: Username of the creator
-- `body`: The prompt text (1-280 characters)
-- `prompt_upvotes`: Net upvotes (up - down) on this prompt
-- `response_count`: Total number of responses to this prompt
-- `created_at`: Creation timestamp
-- `updated_at`: Last update timestamp
+
+> Current implementation does not join `user_name` into Prompt responses. Clients should resolve `user_id` through `/users/{userID}` if needed.
 
 ### Response
+
 ```json
 {
   "response_id": 501,
   "post_id": 101,
-  "user_id": 2,
-  "user_name": "comedian_jane",
+  "user_id": "user_456",
   "body": "Don't worry, I've done this a thousand times... on a simulator.",
   "response_upvotes": 67,
   "created_at": "2026-09-20T13:15:00Z",
   "updated_at": "2026-09-20T13:15:00Z"
 }
 ```
-**Fields:**
-- `response_id`: Unique integer identifier
-- `post_id`: ID of the prompt this response answers
-- `user_id`: ID of the user who created the response
-- `user_name`: Username of the creator
-- `body`: The response/punchline text (1-280 characters)
-- `response_upvotes`: Net upvotes (up - down) on this response
-- `created_at`: Creation timestamp
-- `updated_at`: Last update timestamp
 
-### Vote (Internal, not returned directly)
-```sql
--- Prompt votes
-CREATE TABLE prompt_votes (
-  user_name VARCHAR(50) NOT NULL,
-  post_id BIGINT NOT NULL,
-  vote_type VARCHAR(10) NOT NULL,  -- 'upvote' or 'downvote'
-  created_at TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (user_name, post_id)
-);
+## 5. Endpoint Details
 
--- Response votes
-CREATE TABLE response_votes (
-  user_name VARCHAR(50) NOT NULL,
-  response_id BIGINT NOT NULL,
-  vote_type VARCHAR(10) NOT NULL,  -- 'upvote' or 'downvote'
-  created_at TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (user_name, response_id)
-);
-```
-*Note:* Vote entries are keyed by `user_name` (not `user_id`) in Phase 1 for simplicity. The `PRIMARY KEY` ensures atomic, duplicate-free voting.
+### POST `/users`
 
----
+Create or return an existing user.
 
-## Endpoint Details
+Request:
 
-### `GET /prompts`
-List all prompts with sorting and pagination.
-
-*Example Request:*
-```http
-GET /prompts?sort=hot&limit=20&offset=0
-```
-
-*Example Response (200 OK):*
 ```json
 {
-  "prompts": [
+  "user_id": "user_123",
+  "user_name": "comedy_fan_42"
+}
+```
+
+Notes:
+
+- `user_id` is required.
+- `user_name` is optional; if empty, repository defaults it to `user_id`.
+- Existing users are not renamed.
+
+Response `201`:
+
+```json
+{
+  "data": {
+    "user_id": "user_123",
+    "user_name": "comedy_fan_42",
+    "prompt_score": 0,
+    "response_score": 0,
+    "total_score": 0,
+    "created_at": "2026-09-26T16:00:00Z",
+    "updated_at": "2026-09-26T16:00:00Z"
+  }
+}
+```
+
+### GET `/users/{userID}`
+
+Response `200`:
+
+```json
+{
+  "data": {
+    "user_id": "user_123",
+    "user_name": "comedy_fan_42",
+    "prompt_score": 42,
+    "response_score": 157,
+    "total_score": 199,
+    "created_at": "2026-09-01T10:30:00Z",
+    "updated_at": "2026-09-26T15:45:00Z"
+  }
+}
+```
+
+Errors:
+
+- `404` user not found.
+
+### POST `/prompts`
+
+Request:
+
+```json
+{
+  "user_id": "user_123",
+  "body": "Things you don't want to hear from your surgeon"
+}
+```
+
+Response `201`:
+
+```json
+{
+  "data": {
+    "post_id": 102,
+    "user_id": "user_123",
+    "body": "Things you don't want to hear from your surgeon",
+    "prompt_upvotes": 0,
+    "response_count": 0,
+    "created_at": "2026-09-26T16:00:00Z",
+    "updated_at": "2026-09-26T16:00:00Z"
+  }
+}
+```
+
+Errors:
+
+- `400` invalid request body.
+- `400` `user_id` or `body` missing.
+- `500` if `user_id` does not exist or DB constraint fails.
+
+### GET `/prompts`
+
+Query parameters:
+
+| Param | Default | Notes |
+|---|---|---|
+| `sort` | `newest` | `newest` or `top`; other values fall back to newest |
+| `limit` | `10` | Must be `1..50`; invalid values ignored |
+| `offset` | `0` | Must be `>= 0`; invalid values ignored |
+
+Response `200`:
+
+```json
+{
+  "data": [
     {
       "post_id": 101,
-      "user_id": 1,
-      "user_name": "comedy_fan_42",
+      "user_id": "user_123",
       "body": "Things you don't want to hear from your surgeon",
       "prompt_upvotes": 23,
       "response_count": 45,
       "created_at": "2026-09-20T12:00:00Z",
       "updated_at": "2026-09-20T12:00:00Z"
-    },
-    {
-      "post_id": 100,
-      "user_id": 2,
-      "user_name": "dark_humor_fan",
-      "body": "Rejected names for a daycare center",
-      "prompt_upvotes": 18,
-      "response_count": 32,
-      "created_at": "2026-09-19T15:30:00Z",
-      "updated_at": "2026-09-19T15:30:00Z"
-    }
-  ],
-  "total_count": 1250,
-  "limit": 20,
-  "offset": 0
-}
-```
-
----
-
-### `POST /prompts`
-Create a new prompt.
-
-*Example Request:*
-```json
-{
-  "user_name": "comedy_fan_42",
-  "body": "Things you don't want to hear from your surgeon"
-}
-```
-
-**Constraints:**
-- `user_name`: Required, 3-50 characters
-- `body`: Required, 1-280 characters
-
-*Example Response (201 Created):*
-```json
-{
-  "post_id": 102,
-  "user_id": 1,
-  "user_name": "comedy_fan_42",
-  "body": "Things you don't want to hear from your surgeon",
-  "prompt_upvotes": 0,
-  "response_count": 0,
-  "created_at": "2026-09-26T16:00:00Z",
-  "updated_at": "2026-09-26T16:00:00Z"
-}
-```
-
-*Error Response (400 Bad Request):*
-```json
-{
-  "error": "Missing required field: body",
-  "code": "MISSING_FIELD"
-}
-```
-
----
-
-### `GET /prompts/{post_id}`
-Get a specific prompt with all responses.
-
-*Example Request:*
-```http
-GET /prompts/101?response_sort=hot
-```
-
-**Query Parameters:**
-- `response_sort` (default: `hot`): `hot`, `top`, `newest`, `best`, `controversial`
-
-*Example Response (200 OK):*
-```json
-{
-  "post_id": 101,
-  "user_id": 1,
-  "user_name": "comedy_fan_42",
-  "body": "Things you don't want to hear from your surgeon",
-  "prompt_upvotes": 23,
-  "response_count": 2,
-  "created_at": "2026-09-20T12:00:00Z",
-  "updated_at": "2026-09-20T12:00:00Z",
-  "responses": [
-    {
-      "response_id": 501,
-      "post_id": 101,
-      "user_id": 2,
-      "user_name": "comedian_jane",
-      "body": "Don't worry, I've done this a thousand times... on a simulator.",
-      "response_upvotes": 67,
-      "created_at": "2026-09-20T13:15:00Z",
-      "updated_at": "2026-09-20T13:15:00Z"
-    },
-    {
-      "response_id": 500,
-      "post_id": 101,
-      "user_id": 3,
-      "user_name": "funny_writer",
-      "body": "Can you sign this waiver?",
-      "response_upvotes": 52,
-      "created_at": "2026-09-20T12:45:00Z",
-      "updated_at": "2026-09-20T12:45:00Z"
     }
   ]
 }
 ```
 
----
+> No `total_count` is returned by the current implementation.
 
-### `POST /responses`
-Submit a response to a prompt.
+### GET `/prompts/{postID}`
 
-*Example Request:*
+Response `200`: single Prompt object.
+
+Errors:
+
+- `400` invalid `postID`.
+- `404` prompt not found.
+
+### POST `/prompts/{postID}/upvote`
+
+Headers:
+
+```http
+X-User-ID: user_456
+```
+
+No body.
+
+Response `200`: updated Prompt object.
+
+Errors:
+
+- `401` missing `X-User-ID`.
+- `400` invalid `postID`.
+- `404` prompt not found.
+- `409` user already voted.
+- `500` internal error.
+
+### POST `/prompts/{postID}/downvote`
+
+Same as upvote, but records a downvote and decrements the prompt score.
+
+### POST `/prompts/{postID}/responses`
+
+Request:
+
 ```json
 {
-  "user_name": "comedian_jane",
-  "post_id": 101,
+  "user_id": "user_456",
   "body": "Don't worry, I've done this a thousand times... on a simulator."
 }
 ```
 
-**Constraints:**
-- `user_name`: Required, 3-50 characters
-- `post_id`: Required, must refer to an existing prompt
-- `body`: Required, 1-280 characters
+Response `201`:
 
-*Example Response (201 Created):*
 ```json
 {
-  "response_id": 502,
-  "post_id": 101,
-  "user_id": 2,
-  "user_name": "comedian_jane",
-  "body": "Don't worry, I've done this a thousand times... on a simulator.",
-  "response_upvotes": 0,
-  "created_at": "2026-09-26T16:05:00Z",
-  "updated_at": "2026-09-26T16:05:00Z"
+  "data": {
+    "response_id": 502,
+    "post_id": 101,
+    "user_id": "user_456",
+    "body": "Don't worry, I've done this a thousand times... on a simulator.",
+    "response_upvotes": 0,
+    "created_at": "2026-09-26T16:05:00Z",
+    "updated_at": "2026-09-26T16:05:00Z"
+  }
 }
 ```
 
----
+Errors:
 
-### `POST /prompts/{post_id}/upvote`
-Upvote a prompt. Atomic operation (enforced by DB UNIQUE constraint).
+- `400` invalid request body.
+- `400` missing `user_id` or `body`.
+- `404` user not found.
+- `404` prompt not found.
 
-*Example Request:*
+### GET `/prompts/{postID}/responses`
+
+Query parameters:
+
+| Param | Default | Notes |
+|---|---|---|
+| `limit` | `20` | Must be `1..100`; invalid values ignored |
+| `offset` | `0` | Must be `>= 0`; invalid values ignored |
+
+Response `200`:
+
 ```json
 {
-  "user_name": "another_user"
-}
-```
-
-*Example Response (200 OK):*
-```json
-{
-  "success": true,
-  "message": "Upvote recorded",
-  "new_upvote_count": 24
-}
-```
-
-*Error Response (400 Bad Request) — user already voted:*
-```json
-{
-  "error": "You have already voted on this prompt",
-  "code": "ALREADY_VOTED"
-}
-```
-
----
-
-### `POST /prompts/{post_id}/downvote`
-Downvote a prompt. Atomic operation.
-
-*Example Request:*
-```json
-{
-  "user_name": "another_user"
-}
-```
-
-*Example Response (200 OK):*
-```json
-{
-  "success": true,
-  "new_upvote_count": 22
-}
-```
-
----
-
-### `POST /responses/{response_id}/upvote`
-Upvote a response. Atomic operation.
-
-*Example Request:*
-```json
-{
-  "user_name": "another_user"
-}
-```
-
-*Example Response (200 OK):*
-```json
-{
-  "success": true,
-  "message": "Upvote recorded",
-  "new_upvote_count": 68
-}
-```
-
----
-
-### `POST /responses/{response_id}/downvote`
-Downvote a response. Atomic operation.
-
-*Example Request:*
-```json
-{
-  "user_name": "another_user"
-}
-```
-
-*Example Response (200 OK):*
-```json
-{
-  "success": true,
-  "new_upvote_count": 66
-}
-```
-
----
-
-### `GET /users/{user_name}`
-Get a user's public profile.
-
-*Example Request:*
-```http
-GET /users/comedy_fan_42
-```
-
-*Example Response (200 OK):*
-```json
-{
-  "user_id": 1,
-  "user_name": "comedy_fan_42",
-  "prompt_score": 42,
-  "response_score": 157,
-  "total_score": 199,
-  "created_at": "2026-09-01T10:30:00Z",
-  "updated_at": "2026-09-26T15:45:00Z",
-  "recent_prompts": [
-    {
-      "post_id": 101,
-      "user_id": 1,
-      "user_name": "comedy_fan_42",
-      "body": "Things you don't want to hear from your surgeon",
-      "prompt_upvotes": 23,
-      "response_count": 45,
-      "created_at": "2026-09-20T12:00:00Z"
-    }
-  ],
-  "recent_responses": [
+  "data": [
     {
       "response_id": 501,
       "post_id": 101,
-      "user_id": 1,
-      "user_name": "comedy_fan_42",
+      "user_id": "user_456",
       "body": "Don't worry, I've done this a thousand times... on a simulator.",
       "response_upvotes": 67,
-      "created_at": "2026-09-20T13:15:00Z"
+      "created_at": "2026-09-20T13:15:00Z",
+      "updated_at": "2026-09-20T13:15:00Z"
     }
   ]
 }
 ```
 
----
+> No `total_count` is returned by the current implementation.
 
-### `GET /leaderboard`
-Get ranked users by total score.
+### POST `/responses/{responseID}/upvote`
 
-*Example Request:*
+Headers:
+
 ```http
-GET /leaderboard?sort_by=total_score&limit=10&offset=0
+X-User-ID: user_789
 ```
 
-*Example Response (200 OK):*
-```json
-{
-  "users": [
-    {
-      "user_id": 5,
-      "user_name": "top_comedian",
-      "prompt_score": 180,
-      "response_score": 1240,
-      "total_score": 1420,
-      "created_at": "2026-06-15T08:00:00Z",
-      "updated_at": "2026-09-26T10:00:00Z"
-    },
-    {
-      "user_id": 3,
-      "user_name": "funny_writer",
-      "prompt_score": 95,
-      "response_score": 1050,
-      "total_score": 1145,
-      "created_at": "2026-07-01T09:30:00Z",
-      "updated_at": "2026-09-26T09:30:00Z"
-    }
-  ],
-  "total_count": 500,
-  "limit": 10,
-  "offset": 0
-}
-```
+No body.
 
----
+Response `200`: updated Response object.
 
-## Error Codes
+Errors:
 
-| Code | HTTP Status | Meaning |
-| --- | --- | --- |
-| `MISSING_FIELD` | 400 | Required field is missing |
-| `INVALID_BODY` | 400 | Body exceeds 280 characters |
-| `ALREADY_VOTED` | 400 | User has already voted on this item |
-| `USER_NOT_FOUND` | 404 | User with given username does not exist |
-| `PROMPT_NOT_FOUND` | 404 | Prompt with given ID does not exist |
-| `RESPONSE_NOT_FOUND` | 404 | Response with given ID does not exist |
+- `401` missing `X-User-ID`.
+- `400` invalid `responseID`.
+- `404` response not found.
+- `409` user already voted.
+- `500` internal error.
 
----
+### POST `/responses/{responseID}/downvote`
 
-## Sorting Algorithms
+Same as upvote, but records a downvote and decrements the response score.
 
-- **`hot`**: Time-decay ranking. Fresh prompts/responses with strong upvote momentum rank high. Older items decay over time.
-- **`top`**: Highest net upvotes (up - down) first, all-time.
-- **`best`**: Confidence-weighted ranking using Wilson score interval. Accounts for the number of votes and the ratio of upvotes to downvotes.
-- **`newest`**: Creation date descending (newest first).
-- **`controversial`**: Net score close to zero. Highlights items with many upvotes AND many downvotes.
+## 6. Error Status Mapping
 
----
+| HTTP Status | Condition |
+|---|---|
+| `400` | Invalid JSON, missing required field, invalid ID format, invalid vote type |
+| `401` | Missing `X-User-ID` on vote endpoint |
+| `404` | Prompt, response, or user not found |
+| `409` | User already voted on the item |
+| `500` | Internal server error |
 
-## Notes
+## 7. Planned Endpoints
 
-- **Atomicity:** Vote endpoints enforce duplicate-prevention via `PRIMARY KEY (user_name, post_id)` or `PRIMARY KEY (user_name, response_id)` in the database. The `INSERT` is atomic — no app-layer checks needed.
-- **User identification:** Phase 1 uses `user_name` as the primary identifier for voting/attribution (simpler than managing `user_id` in the session). In Phase 2, we'll add authentication and use `user_id` internally.
-- **Pagination:** All list endpoints (`/prompts`, `/leaderboard`) return `total_count`, `limit`, and `offset` for client-side pagination.
-- **Timestamps:** All timestamps are in ISO 8601 format with timezone (UTC).
-- **Response count:** The `response_count` field in Prompt objects is denormalized (cached) for fast feed renders. It's updated each time a response is created.
-- **Karma score:** Both `prompt_score` and `response_score` are denormalized counters. They're updated in the same transaction as a vote is recorded.
+These are not implemented in the current router:
+
+- `GET /leaderboard`
+- `GET /responses/{responseID}`
+- `GET /users/{userID}/prompts`
+- `GET /users/{userID}/responses`
+- `GET /prompts?sort=hot|best|controversial`
+- Paginated responses with `total_count`, `limit`, `offset`
+- Error responses with machine-readable `code`
