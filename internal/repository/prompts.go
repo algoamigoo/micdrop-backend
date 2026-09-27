@@ -20,7 +20,7 @@ func (r *Repository) CreatePrompt(ctx context.Context, userID, body string) (*mo
 	var prompt models.Prompt
 	err := r.db.QueryRowxContext(ctx, query, userID, body).StructScan(&prompt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("repository.CreatePrompt: %w", err)
 	}
 
 	return &prompt, nil
@@ -29,10 +29,9 @@ func (r *Repository) CreatePrompt(ctx context.Context, userID, body string) (*mo
 // GetPromptByID fetches a single prompt by its ID.
 func (r *Repository) GetPromptByID(ctx context.Context, postID int64) (*models.Prompt, error) {
 	query := `
-        SELECT p.post_id, p.user_id, u.user_name, p.body, p.prompt_upvotes, p.response_count, p.created_at, p.updated_at
-        FROM prompts p
-        JOIN users u ON p.user_id = u.user_id
-        WHERE p.post_id = $1;
+        SELECT post_id, user_id, body, prompt_upvotes, response_count, created_at, updated_at
+        FROM prompts
+        WHERE post_id = $1;
     `
 
 	var prompt models.Prompt
@@ -41,7 +40,7 @@ func (r *Repository) GetPromptByID(ctx context.Context, postID int64) (*models.P
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPromptNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("repository.GetPromptByID: %w", err)
 	}
 
 	return &prompt, nil
@@ -50,16 +49,15 @@ func (r *Repository) GetPromptByID(ctx context.Context, postID int64) (*models.P
 // ListPrompts fetches a list of prompts based on the specified sort order.
 // Supported sorts: "newest", "top". (Defaults to newest)
 func (r *Repository) ListPrompts(ctx context.Context, sort string, limit, offset int) ([]models.Prompt, error) {
-	orderBy := "p.created_at DESC" // Default to newest
+	orderBy := "created_at DESC" // Default to newest
 	if sort == "top" {
-		orderBy = "p.prompt_upvotes DESC, p.created_at DESC"
+		orderBy = "prompt_upvotes DESC, created_at DESC"
 	}
 
 	// We use Sprintf ONLY for the ORDER BY clause, as you cannot parameterize it.
 	query := `
-        SELECT p.post_id, p.user_id, u.user_name, p.body, p.prompt_upvotes, p.response_count, p.created_at, p.updated_at
-        FROM prompts p
-        JOIN users u ON p.user_id = u.user_id
+        SELECT post_id, user_id, body, prompt_upvotes, response_count, created_at, updated_at
+        FROM prompts
         ORDER BY %s
         LIMIT $1 OFFSET $2;
     `
@@ -69,7 +67,7 @@ func (r *Repository) ListPrompts(ctx context.Context, sort string, limit, offset
 	var prompts []models.Prompt
 	err := r.db.SelectContext(ctx, &prompts, finalQuery, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("repository.ListPrompts: %w", err)
 	}
 
 	return prompts, nil
