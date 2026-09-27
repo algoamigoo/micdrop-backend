@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/algoamigoo/micdrop/internal/handlers"
 	"github.com/algoamigoo/micdrop/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,20 +32,31 @@ func New(repo *repository.Repository, logger *slog.Logger, allowedOrigins []stri
 
 	r.Get("/healthz", healthCheck)
 
-	r.Route("/api/v1", func(v1 chi.Router) {
-		// TODO: mount handlers here, e.g.:
-		// v1.Post("/prompts", handlers.CreatePrompt(repo))
-		// v1.Get("/prompts", handlers.ListPrompts(repo))
-		// v1.Get("/prompts/{postID}", handlers.GetPrompt(repo))
-		// v1.Post("/prompts/{postID}/responses", handlers.CreateResponse(repo))
-		// v1.Get("/prompts/{postID}/responses", handlers.ListResponses(repo))
-		// v1.Post("/prompts/{postID}/upvote", handlers.UpvotePrompt(repo))
-		// v1.Post("/prompts/{postID}/downvote", handlers.DownvotePrompt(repo))
-		// v1.Post("/responses/{responseID}/upvote", handlers.UpvoteResponse(repo))
-		// v1.Post("/responses/{responseID}/downvote", handlers.DownvoteResponse(repo))
-		// v1.Get("/users/{userName}", handlers.GetUser(repo))
-	})
+	// Initialize our handlers
+	h := handlers.New(repo)
 
+	r.Route("/api/v1", func(v1 chi.Router) {
+		// Users
+		v1.Post("/users", h.CreateUser)
+		v1.Get("/users/{userID}", h.GetUser)
+
+		// Prompts
+		v1.Post("/prompts", h.CreatePrompt)
+		v1.Get("/prompts", h.ListPrompts)
+		v1.Get("/prompts/{postID}", h.GetPrompt)
+
+		// Prompt Votes
+		v1.Post("/prompts/{postID}/upvote", h.UpvotePrompt)
+		v1.Post("/prompts/{postID}/downvote", h.DownvotePrompt)
+
+		// Responses
+		v1.Post("/prompts/{postID}/responses", h.CreateResponse)
+		v1.Get("/prompts/{postID}/responses", h.ListResponses)
+
+		// Response Votes
+		v1.Post("/responses/{responseID}/upvote", h.UpvoteResponse)
+		v1.Post("/responses/{responseID}/downvote", h.DownvoteResponse)
+	})
 	return r
 }
 
