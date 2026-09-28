@@ -11,6 +11,12 @@ type Config struct {
 	AllowedOrigins []string
 	AutoMigrate    bool
 	LogLevel       string
+
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURL  string
+	JWTSecret          string
+	FrontendURL        string
 }
 
 func Load() *Config {
@@ -26,6 +32,12 @@ func Load() *Config {
 		AllowedOrigins: origins,
 		AutoMigrate:    getenv("AUTO_MIGRATE", "true") == "true",
 		LogLevel:       getenv("LOG_LEVEL", "info"),
+
+		GoogleClientID:     getenv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURL:  getenv("GOOGLE_REDIRECT_URL", "http://localhost:3000/api/v1/auth/google/callback"),
+		JWTSecret:          getenv("JWT_SECRET", "supersecretjwtkey"),
+		FrontendURL:        getenv("FRONTEND_URL", "http://localhost:5173/auth/callback"),
 	}
 }
 

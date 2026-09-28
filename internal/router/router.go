@@ -6,23 +6,24 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/algoamigoo/micdrop/internal/config"
 	"github.com/algoamigoo/micdrop/internal/handlers"
+	mw "github.com/algoamigoo/micdrop/internal/middleware"
 	"github.com/algoamigoo/micdrop/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
-// New builds the HTTP router for the API. Domain handlers are wired
-// in under /api/v1
-func New(repo *repository.Repository, logger *slog.Logger, allowedOrigins []string) http.Handler {
+// Note: signature changed to accept cfg *config.Config
+func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   allowedOrigins,
+		AllowedOrigins:   cfg.AllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization", "X-User-ID"},
 		AllowCredentials: false,
@@ -32,31 +33,44 @@ func New(repo *repository.Repository, logger *slog.Logger, allowedOrigins []stri
 
 	r.Get("/healthz", healthCheck)
 
-	// Initialize our handlers
 	h := handlers.New(repo)
+	authH := handlers.NewAuthHandler(repo, cfg)
 
 	r.Route("/api/v1", func(v1 chi.Router) {
-		// Users
-		v1.Post("/users", h.CreateUser)
-		v1.Get("/users/{userID}", h.GetUser)
+		// Auth Routes (Public)
+		v1.Get("/auth/google/login", authH.GoogleLogin)
+		v1.Get("/auth/google/callback", authH.GoogleCallback)
 
-		// Prompts
-		v1.Post("/prompts", h.CreatePrompt)
+		// Protected Routes
+		v1.Group(func(protected chi.Router) {
+			protected.Use(mw.RequireAuth(cfg.JWTSecret))
+
+			protected.Get("/auth/me", authH.GetMe)
+
+			// Prompts (Create requires auth)
+			protected.Post("/prompts", h.CreatePrompt)
+
+			// Responses (Create requires auth)
+			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
+
+			// Votes (Require auth)
+			protected.Post("/prompts/{postID}/upvote", h.UpvotePrompt)
+			protected.Post("/prompts/{postID}/downvote", h.DownvotePrompt)
+			protected.Post("/responses/{responseID}/upvote", h.UpvoteResponse)
+			protected.Post("/responses/{responseID}/downvote", h.DownvoteResponse)
+		})
+
+		// Public Routes
+		v1.Post("/users", h.CreateUser) // Might deprecate this later if OAuth fully replaces it
+		v1.Get("/users/{userID}", h.GetUser)
+		v1.Get("/users/{userID}/prompts", h.ListUserPrompts)
+		v1.Get("/users/{userID}/responses", h.ListUserResponses)
+
 		v1.Get("/prompts", h.ListPrompts)
 		v1.Get("/prompts/{postID}", h.GetPrompt)
-
-		// Prompt Votes
-		v1.Post("/prompts/{postID}/upvote", h.UpvotePrompt)
-		v1.Post("/prompts/{postID}/downvote", h.DownvotePrompt)
-
-		// Responses
-		v1.Post("/prompts/{postID}/responses", h.CreateResponse)
 		v1.Get("/prompts/{postID}/responses", h.ListResponses)
-
-		// Response Votes
-		v1.Post("/responses/{responseID}/upvote", h.UpvoteResponse)
-		v1.Post("/responses/{responseID}/downvote", h.DownvoteResponse)
 	})
+
 	return r
 }
 

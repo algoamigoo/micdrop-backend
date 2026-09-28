@@ -72,3 +72,20 @@ func (r *Repository) ListPrompts(ctx context.Context, sort string, limit, offset
 
 	return prompts, nil
 }
+
+// ListPromptsByUser fetches prompts created by a specific user.
+func (r *Repository) ListPromptsByUser(ctx context.Context, userID string, limit, offset int) ([]models.Prompt, error) {
+	query := `
+        SELECT post_id, user_id, body, prompt_upvotes, response_count, created_at, updated_at
+        FROM prompts
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3;
+    `
+	var prompts []models.Prompt
+	err := r.db.SelectContext(ctx, &prompts, query, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("repository.ListPromptsByUser: %w", err)
+	}
+	return prompts, nil
+}

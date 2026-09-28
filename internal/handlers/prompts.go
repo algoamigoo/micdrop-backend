@@ -5,16 +5,14 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/algoamigoo/micdrop/internal/middleware"
 	"github.com/go-chi/chi/v5"
 )
 
-// Only the user_id and body are allowed to be sent by the client.
 type createPromptRequest struct {
-	UserID string `json:"user_id"`
-	Body   string `json:"body"`
+	Body string `json:"body"`
 }
 
-// CreatePrompt handles POST /api/v1/prompts
 func (h *Handler) CreatePrompt(w http.ResponseWriter, r *http.Request) {
 	var req createPromptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -22,12 +20,18 @@ func (h *Handler) CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserID == "" || req.Body == "" {
-		respondError(w, http.StatusBadRequest, "user_id and body are required")
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		respondError(w, http.StatusUnauthorized, "User not authenticated")
 		return
 	}
 
-	prompt, err := h.Repo.CreatePrompt(r.Context(), req.UserID, req.Body)
+	if req.Body == "" {
+		respondError(w, http.StatusBadRequest, "body is required")
+		return
+	}
+
+	prompt, err := h.Repo.CreatePrompt(r.Context(), userID, req.Body)
 	if err != nil {
 		handleAppError(w, err)
 		return

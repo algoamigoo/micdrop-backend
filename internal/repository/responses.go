@@ -85,3 +85,20 @@ func (r *Repository) GetLeaderboard(ctx context.Context, limit int) ([]models.Us
 
 	return users, nil
 }
+
+// ListResponsesByUser fetches responses created by a specific user.
+func (r *Repository) ListResponsesByUser(ctx context.Context, userID string, limit, offset int) ([]models.Response, error) {
+	query := `
+        SELECT response_id, post_id, user_id, body, response_upvotes, created_at, updated_at
+        FROM responses
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2 OFFSET $3;
+    `
+	var responses []models.Response
+	err := r.db.SelectContext(ctx, &responses, query, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("repository.ListResponsesByUser: %w", err)
+	}
+	return responses, nil
+}

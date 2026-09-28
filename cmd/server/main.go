@@ -15,6 +15,7 @@ import (
 	"github.com/algoamigoo/micdrop/internal/db"
 	"github.com/algoamigoo/micdrop/internal/repository"
 	"github.com/algoamigoo/micdrop/internal/router"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -25,6 +26,7 @@ func main() {
 }
 
 func run() error {
+	_ = godotenv.Load()
 	cfg := config.Load()
 
 	logger := newLogger(cfg.LogLevel)
@@ -42,7 +44,7 @@ func run() error {
 	}()
 
 	repo := repository.New(database)
-	handler := router.New(repo, logger, cfg.AllowedOrigins)
+	handler := router.New(repo, logger, cfg)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

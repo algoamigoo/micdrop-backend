@@ -312,3 +312,101 @@ Recommended:
 - Hot/Best/Controversial ranking.
 - Rate limiting.
 - Moderation.
+
+Testing
+
+Phase 1: Unit Tests (Handlers & Middleware)
+Where: internal/handlers/ and internal/middleware/
+Tool: Go's standard testing + httptest + Mocks
+
+We already started this, but we need to expand it to cover every edge case.
+
+1. Auth Middleware (internal/middleware/auth_test.go)
+
+Test: Missing Authorization header → 401 Unauthorized
+Test: Header is not Bearer <token> (e.g., Basic <token>) → 401 Unauthorized
+Test: Invalid JWT signature → 401 Unauthorized
+Test: Expired JWT → 401 Unauthorized
+Test: Valid JWT → Context contains correct user_id
+2. Prompts Handler (internal/handlers/prompts_test.go)
+
+Test CreatePrompt:
+Missing JWT → 401
+Empty body field → 400 Bad Request
+Internal DB error (Mock returns ErrUserNotFound) → 404
+Success → 201 Created and response body matches.
+Test ListPrompts:
+Invalid limit (e.g., -5 or 999) → Server falls back to default 10.
+Invalid sort (e.g., sort=cool) → Server falls back to newest.
+Success → 200 OK with array.
+3. Responses Handler (internal/handlers/responses_test.go)
+
+Test CreateResponse:
+Missing JWT → 401
+Invalid postID in URL (e.g., abc) → 400 Bad Request
+Missing body → 400 Bad Request
+DB returns ErrPromptNotFound → 404
+Success → 201
+Test ListResponses: Pagination logic and success.
+4. Votes Handler (internal/handlers/votes_test.go)
+
+Test UpvotePrompt / DownvotePrompt:
+Missing JWT → 401
+Invalid postID → 400
+Mock returns ErrAlreadyVoted → 409 Conflict
+Mock returns ErrPromptNotFound → 404
+Success → 200
+(Repeat for Responses)
+5. Users Handler (internal/handlers/users_test.go)
+
+Test ListUserPrompts / ListUserResponses:
+Invalid userID format → 400
+Success → 200 with list.
+Phase 2: Integration Tests (Repository / Database)
+Where: internal/repository/
+Tool: Go's testing + Testcontainers + Real PostgreSQL
+
+This is critical. Your app uses complex SQL transactions for voting and creating responses. We must test the actual database. Testcontainers will automatically spin up a Docker PostgreSQL container, run your migrations, test the queries, and tear it down.
+
+1. Users Repo (internal/repository/users_test.go)
+
+Test GetOrCreateUser:
+Create a new user → User exists in DB with total_score = 0.
+Call again with same user_id but different user_name → DB should ignore the new name (no-update on conflict) and return original.
+Test GetUserByID:
+Get existing user → Returns correct scores.
+Get non-existent user → Returns ErrUserNotFound.
+2. Prompts & Responses Repo (internal/repository/prompts_test.go, etc.)
+
+Test CreatePrompt:
+Valid user ID → Inserts successfully.
+Invalid user ID (FK violation) → Returns ErrUserNotFound (This tests the bug fix we discussed earlier!)
+Body length > 280 chars → Returns DB error.
+Test CreateResponse (Transaction test):
+Insert response for valid prompt → Success.
+Verify prompts.response_count actually incremented by 1.
+Insert response for invalid post_id → Returns ErrPromptNotFound.
+Insert response for invalid user_id → Returns ErrUserNotFound.
+3. Votes Repo (internal/repository/votes_test.go) - The most critical tests
+
+Test VoteOnPrompt (Transaction test):
+Valid vote → Success. Verify prompts.prompt_upvotes increased by 1. Verify author's users.total_score increased by 1.
+Duplicate vote → Returns ErrAlreadyVoted. Verify counters did not change (rollback).
+Self-vote → Returns ErrSelfVote (once you implement that check).
+Test VoteOnResponse:
+Same as above, but verify responses.response_upvotes and response_score.
+Crucial Test: Verify the SQL scan bug is fixed (that it doesn't try to scan user_name into models.Response anymore).
+4. Concurrency / Race Tests
+
+Test VoteOnPrompt under load:
+Spin up 50 goroutines trying to upvote the same prompt with the same user_id simultaneously.
+Assert that exactly 1 succeeds, and 49 return ErrAlreadyVoted.
+Assert the final prompt_upvotes is exactly 1 (not 50).
+Phase 3: End-to-End (E2E) Tests (Optional for backend)
+Where: cmd/server/main_test.go
+Tool: httptest + Real DB
+
+Instead of testing just the handler, you boot the entire router.New() with a real database connection and hit the actual HTTP endpoints.
+
+Example: Hit POST /api/v1/prompts -> Hit GET /api/v1/prompts/1 -> Verify it's there.
+(We can skip this if we have solid Phase 1 and Phase 2 tests, as they cover the same paths).
