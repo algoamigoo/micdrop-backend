@@ -1,5 +1,3 @@
-# docs/TDD.md
-
 # MicDrop — Technical Design Document
 
 ## 1. Overview
@@ -62,11 +60,11 @@ Key packages:
 CREATE TABLE users (
     user_id        VARCHAR(50) PRIMARY KEY,
     user_name      VARCHAR(50) NOT NULL,
-    prompt_score   INTEGER      NOT NULL DEFAULT 0,
-    response_score INTEGER      NOT NULL DEFAULT 0,
-    total_score    INTEGER      NOT NULL DEFAULT 0,
-    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    prompt_score   INTEGER     NOT NULL DEFAULT 0,
+    response_score INTEGER     NOT NULL DEFAULT 0,
+    total_score    INTEGER     NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -74,13 +72,13 @@ CREATE TABLE users (
 
 ```sql
 CREATE TABLE prompts (
-    post_id         BIGSERIAL    PRIMARY KEY,
-    user_id         VARCHAR(50)  NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    body            VARCHAR(280) NOT NULL,
-    prompt_upvotes  INTEGER      NOT NULL DEFAULT 0,
-    response_count  INTEGER      NOT NULL DEFAULT 0,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    post_id        BIGSERIAL    PRIMARY KEY,
+    user_id        VARCHAR(50)  NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    body           VARCHAR(280) NOT NULL,
+    prompt_upvotes INTEGER      NOT NULL DEFAULT 0,
+    response_count INTEGER      NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -114,8 +112,8 @@ CREATE TABLE prompt_votes (
 
 ```sql
 CREATE TABLE response_votes (
-    user_id     VARCHAR(50) NOT NULL REFERENCES users(user_id)         ON DELETE CASCADE,
-    response_id BIGINT      NOT NULL REFERENCES responses(response_id)  ON DELETE CASCADE,
+    user_id     VARCHAR(50) NOT NULL REFERENCES users(user_id)       ON DELETE CASCADE,
+    response_id BIGINT      NOT NULL REFERENCES responses(response_id)   ON DELETE CASCADE,
     vote_type   VARCHAR(10) NOT NULL CHECK (vote_type IN ('upvote', 'downvote')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, response_id)
@@ -126,10 +124,10 @@ CREATE TABLE response_votes (
 
 MVP identity is not authenticated.
 
-- `POST /users` receives `user_id`.
-- `POST /prompts` receives `user_id`.
-- `POST /prompts/{postID}/responses` receives `user_id`.
-- Vote endpoints read `X-User-ID`.
+- `POST /users` receives `user_id` in the JSON body.
+- `POST /prompts` receives `user_id` in the JSON body.
+- `POST /prompts/{postID}/responses` receives `user_id` in the JSON body.
+- Vote endpoints read `X-User-ID` header.
 
 Future Phase 2 should replace this with JWT/session auth and use a trusted `user_id` from middleware.
 
@@ -175,8 +173,7 @@ Repository starts a transaction:
 2. Update `prompts.response_count = response_count + 1`.
 3. Commit.
 
-Foreign key errors:
-
+Foreign key errors (`23503`):
 - `responses_user_id_fkey` → `ErrUserNotFound`.
 - Otherwise → `ErrPromptNotFound`.
 
@@ -191,6 +188,7 @@ Transaction:
 5. Fetch updated prompt outside transaction.
 
 Duplicate vote is detected through PostgreSQL unique violation `23505` and mapped to `ErrAlreadyVoted`.
+Foreign key violation `23503` is mapped to `ErrPromptNotFound`.
 
 ### Vote on Response
 
@@ -201,6 +199,9 @@ Transaction:
 3. Update author `users.response_score` and `users.total_score`.
 4. Commit.
 5. Fetch updated response.
+
+Duplicate vote is detected through `23505` and mapped to `ErrAlreadyVoted`.
+Foreign key violation `23503` is mapped to `ErrResponseNotFound`.
 
 ## 8. Error Handling
 
@@ -281,10 +282,10 @@ Recommended:
 2. `GetLeaderboard` exists but no route exposes it.
 3. `ErrSelfVote` is defined but unused.
 4. `AUTO_MIGRATE` is unused.
-5. `internal/middleware` is empty.
+5. `internal/middleware` package exists but is empty.
 6. No request body length validation; DB `VARCHAR(280)` errors become `500`.
-7. `CreatePrompt` does not map missing `user_id` to `ErrUserNotFound`.
-8. Vote foreign-key errors cannot distinguish missing voter from missing target.
+7. `CreatePrompt` does not map missing `user_id` to `ErrUserNotFound` (returns `500`).
+8. Vote foreign-key errors (`23503`) cannot distinguish missing voter from missing target, mapping both to `ErrPromptNotFound` / `ErrResponseNotFound`.
 9. List endpoints do not return `total_count`.
 10. Only `newest` and `top` prompt sorting are implemented.
 11. No `GET /responses/{responseID}`.
@@ -305,9 +306,9 @@ Recommended:
 
 ### Phase 2
 
-- Real auth.
+- Real Google OAuth and JWT session implementation.
+- User profile pages (`GET /users/{userID}/prompts`, `GET /users/{userID}/responses`).
 - Vote changes/retractions.
 - Hot/Best/Controversial ranking.
 - Rate limiting.
 - Moderation.
-- User activity feeds.

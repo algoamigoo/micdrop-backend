@@ -1,5 +1,3 @@
-# docs/PRD.md
-
 # MicDrop — Product Requirements Document
 
 ## 1. Overview
@@ -19,14 +17,15 @@ The MVP is an API-first backend. It supports users, prompts, responses, voting, 
 - Provide list endpoints with basic sorting and pagination.
 - Keep vote and response writes atomic.
 
-## 3. Non-Goals for MVP
+## 3. Non-Goals for MVP (Phase 1)
 
-- Real authentication/authorization.
+- Real authentication/authorization (Google OAuth, JWTs).
+- User profile pages listing a user's prompts/responses.
 - Comment threads.
 - Editing or deleting prompts/responses.
 - Changing or retracting votes.
 - Full hot/best/controversial ranking algorithms.
-- Leaderboard UI/API.
+- Leaderboard API (repo method exists, but route is not wired).
 - Moderation/reporting.
 - Notifications.
 - Media uploads.
@@ -58,7 +57,6 @@ The MVP is an API-first backend. It supports users, prompts, responses, voting, 
   - `prompt_score`: net votes on the user’s prompts.
   - `response_score`: net votes on the user’s responses.
   - `total_score`: `prompt_score + response_score`.
-- User leaderboard is **Planned**; repository method exists but no route is wired.
 
 ### 6.2 Prompts
 
@@ -100,51 +98,7 @@ The MVP is an API-first backend. It supports users, prompts, responses, voting, 
 - Pagination is supported through `limit` and `offset`.
 - MVP list responses return arrays only, not `total_count`.
 
-## 7. Data Models
-
-### User
-
-```json
-{
-  "user_id": "user_123",
-  "user_name": "comedy_fan_42",
-  "prompt_score": 42,
-  "response_score": 157,
-  "total_score": 199,
-  "created_at": "2026-09-01T10:30:00Z",
-  "updated_at": "2026-09-26T15:45:00Z"
-}
-```
-
-### Prompt
-
-```json
-{
-  "post_id": 101,
-  "user_id": "user_123",
-  "body": "Things you don't want to hear from your surgeon",
-  "prompt_upvotes": 23,
-  "response_count": 45,
-  "created_at": "2026-09-20T12:00:00Z",
-  "updated_at": "2026-09-20T12:00:00Z"
-}
-```
-
-### Response
-
-```json
-{
-  "response_id": 501,
-  "post_id": 101,
-  "user_id": "user_456",
-  "body": "Don't worry, I've done this a thousand times... on a simulator.",
-  "response_upvotes": 67,
-  "created_at": "2026-09-20T13:15:00Z",
-  "updated_at": "2026-09-20T13:15:00Z"
-}
-```
-
-## 8. API Summary
+## 7. API Summary
 
 Base URL: `http://localhost:3000/api/v1`
 
@@ -163,7 +117,7 @@ Base URL: `http://localhost:3000/api/v1`
 | `/responses/{responseID}/downvote` | POST | Downvote response |
 | `/healthz` | GET | Health check |
 
-## 9. Acceptance Criteria
+## 8. Acceptance Criteria
 
 - Creating a user returns a user object.
 - Creating a prompt with an existing `user_id` returns `201 Created`.
@@ -176,15 +130,15 @@ Base URL: `http://localhost:3000/api/v1`
 - Vote creation updates both the target counter and author score.
 - Duplicate votes are prevented by database primary keys.
 
-## 10. Future Requirements
+## 9. Future Requirements (Phase 2+)
 
-- Real authentication and JWT/session identity.
-- Leaderboard endpoint.
+- Real authentication (Google OAuth) and JWT/session identity.
+- User profile pages (`GET /users/{userID}/prompts`, `GET /users/{userID}/responses`).
 - `GET /responses/{responseID}`.
+- Leaderboard endpoint (`GET /leaderboard`).
 - Hot/Best/Controversial ranking.
 - Total counts in paginated responses.
 - Vote change/retraction.
 - Self-vote prevention.
 - Rate limiting.
 - Moderation and reporting.
-- User profile pages with recent prompts/responses.

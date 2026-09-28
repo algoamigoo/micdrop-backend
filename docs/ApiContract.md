@@ -1,11 +1,7 @@
-# docs/ApiContract.md
-
 # MicDrop API Contract
 
 **Base URL:** `http://localhost:3000/api/v1`  
 **Health check:** `GET /healthz`
-
-> Important: the previous contract used `/v1`, `user_name` in vote bodies, nested prompt+responses, `new_upvote_count`, and `/leaderboard`. Those are not implemented by the current router. This contract reflects the current MVP.
 
 ## 1. Response Envelope
 
@@ -154,21 +150,7 @@ Response `201`:
 
 ### GET `/users/{userID}`
 
-Response `200`:
-
-```json
-{
-  "data": {
-    "user_id": "user_123",
-    "user_name": "comedy_fan_42",
-    "prompt_score": 42,
-    "response_score": 157,
-    "total_score": 199,
-    "created_at": "2026-09-01T10:30:00Z",
-    "updated_at": "2026-09-26T15:45:00Z"
-  }
-}
-```
+Response `200`: User object.
 
 Errors:
 
@@ -185,27 +167,13 @@ Request:
 }
 ```
 
-Response `201`:
-
-```json
-{
-  "data": {
-    "post_id": 102,
-    "user_id": "user_123",
-    "body": "Things you don't want to hear from your surgeon",
-    "prompt_upvotes": 0,
-    "response_count": 0,
-    "created_at": "2026-09-26T16:00:00Z",
-    "updated_at": "2026-09-26T16:00:00Z"
-  }
-}
-```
+Response `201`: Prompt object.
 
 Errors:
 
 - `400` invalid request body.
 - `400` `user_id` or `body` missing.
-- `500` if `user_id` does not exist or DB constraint fails.
+- `500` if `user_id` does not exist or DB constraint fails (e.g., body > 280 chars).
 
 ### GET `/prompts`
 
@@ -217,25 +185,7 @@ Query parameters:
 | `limit` | `10` | Must be `1..50`; invalid values ignored |
 | `offset` | `0` | Must be `>= 0`; invalid values ignored |
 
-Response `200`:
-
-```json
-{
-  "data": [
-    {
-      "post_id": 101,
-      "user_id": "user_123",
-      "body": "Things you don't want to hear from your surgeon",
-      "prompt_upvotes": 23,
-      "response_count": 45,
-      "created_at": "2026-09-20T12:00:00Z",
-      "updated_at": "2026-09-20T12:00:00Z"
-    }
-  ]
-}
-```
-
-> No `total_count` is returned by the current implementation.
+Response `200`: Array of Prompt objects. No `total_count` is returned.
 
 ### GET `/prompts/{postID}`
 
@@ -246,15 +196,9 @@ Errors:
 - `400` invalid `postID`.
 - `404` prompt not found.
 
-### POST `/prompts/{postID}/upvote`
+### POST `/prompts/{postID}/upvote` & `/downvote`
 
-Headers:
-
-```http
-X-User-ID: user_456
-```
-
-No body.
+Headers: `X-User-ID: user_456`
 
 Response `200`: updated Prompt object.
 
@@ -262,13 +206,9 @@ Errors:
 
 - `401` missing `X-User-ID`.
 - `400` invalid `postID`.
-- `404` prompt not found.
+- `404` prompt not found (also returned if voter `user_id` doesn't exist).
 - `409` user already voted.
 - `500` internal error.
-
-### POST `/prompts/{postID}/downvote`
-
-Same as upvote, but records a downvote and decrements the prompt score.
 
 ### POST `/prompts/{postID}/responses`
 
@@ -281,28 +221,15 @@ Request:
 }
 ```
 
-Response `201`:
-
-```json
-{
-  "data": {
-    "response_id": 502,
-    "post_id": 101,
-    "user_id": "user_456",
-    "body": "Don't worry, I've done this a thousand times... on a simulator.",
-    "response_upvotes": 0,
-    "created_at": "2026-09-26T16:05:00Z",
-    "updated_at": "2026-09-26T16:05:00Z"
-  }
-}
-```
+Response `201`: Response object.
 
 Errors:
 
 - `400` invalid request body.
 - `400` missing `user_id` or `body`.
-- `404` user not found.
-- `404` prompt not found.
+- `404` user not found (mapped from FK violation).
+- `404` prompt not found (mapped from FK violation).
+- `500` internal error (e.g., body > 280 chars).
 
 ### GET `/prompts/{postID}/responses`
 
@@ -313,35 +240,11 @@ Query parameters:
 | `limit` | `20` | Must be `1..100`; invalid values ignored |
 | `offset` | `0` | Must be `>= 0`; invalid values ignored |
 
-Response `200`:
+Response `200`: Array of Response objects ordered by `response_upvotes DESC, created_at ASC`. No `total_count` is returned.
 
-```json
-{
-  "data": [
-    {
-      "response_id": 501,
-      "post_id": 101,
-      "user_id": "user_456",
-      "body": "Don't worry, I've done this a thousand times... on a simulator.",
-      "response_upvotes": 67,
-      "created_at": "2026-09-20T13:15:00Z",
-      "updated_at": "2026-09-20T13:15:00Z"
-    }
-  ]
-}
-```
+### POST `/responses/{responseID}/upvote` & `/downvote`
 
-> No `total_count` is returned by the current implementation.
-
-### POST `/responses/{responseID}/upvote`
-
-Headers:
-
-```http
-X-User-ID: user_789
-```
-
-No body.
+Headers: `X-User-ID: user_789`
 
 Response `200`: updated Response object.
 
@@ -349,13 +252,9 @@ Errors:
 
 - `401` missing `X-User-ID`.
 - `400` invalid `responseID`.
-- `404` response not found.
+- `404` response not found (also returned if voter `user_id` doesn't exist).
 - `409` user already voted.
 - `500` internal error.
-
-### POST `/responses/{responseID}/downvote`
-
-Same as upvote, but records a downvote and decrements the response score.
 
 ## 6. Error Status Mapping
 
@@ -367,14 +266,13 @@ Same as upvote, but records a downvote and decrements the response score.
 | `409` | User already voted on the item |
 | `500` | Internal server error |
 
-## 7. Planned Endpoints
+## 7. Planned / Unimplemented Endpoints
 
 These are not implemented in the current router:
 
-- `GET /leaderboard`
-- `GET /responses/{responseID}`
+- `GET /leaderboard` (Repository method exists, route not wired)
 - `GET /users/{userID}/prompts`
 - `GET /users/{userID}/responses`
 - `GET /prompts?sort=hot|best|controversial`
-- Paginated responses with `total_count`, `limit`, `offset`
+- Paginated responses with `total_count`
 - Error responses with machine-readable `code`
