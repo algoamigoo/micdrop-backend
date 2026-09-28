@@ -5,16 +5,14 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/algoamigoo/micdrop/internal/middleware"
 	"github.com/go-chi/chi/v5"
 )
 
-// Only the user_id and body are allowed to be sent by the client.
 type createResponseRequest struct {
-	UserID string `json:"user_id"`
-	Body   string `json:"body"`
+	Body string `json:"body"`
 }
 
-// CreateResponse handles POST /api/v1/prompts/{postID}/responses
 func (h *Handler) CreateResponse(w http.ResponseWriter, r *http.Request) {
 	postIDStr := chi.URLParam(r, "postID")
 	postID, err := strconv.ParseInt(postIDStr, 10, 64)
@@ -29,13 +27,18 @@ func (h *Handler) CreateResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserID == "" || req.Body == "" {
-		respondError(w, http.StatusBadRequest, "user_id and body are required")
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		respondError(w, http.StatusUnauthorized, "User not authenticated")
 		return
 	}
 
-	// Repository handles the transaction (insert response + bump prompt's response_count)
-	resp, err := h.Repo.CreateResponse(r.Context(), postID, req.UserID, req.Body)
+	if req.Body == "" {
+		respondError(w, http.StatusBadRequest, "body is required")
+		return
+	}
+
+	resp, err := h.Repo.CreateResponse(r.Context(), postID, userID, req.Body)
 	if err != nil {
 		handleAppError(w, err)
 		return
