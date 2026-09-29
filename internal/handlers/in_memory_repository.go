@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/algoamigoo/micdrop/internal/models"
+	"github.com/algoamigoo/micdrop/internal/repository"
 )
 
 // InMemoryRepository implements the Repository interface for unit testing.
@@ -13,16 +14,28 @@ type InMemoryRepository struct {
 	Prompts   []models.Prompt
 	Response  *models.Response
 	Responses []models.Response
+	Stats     *models.UserStats
 
-	// Err allows us to simulate database errors
+	// Err allows us to simulate database errors.
 	Err error
 
-	// Track inputs for assertions if needed
-	CreatePromptCalledWith   struct{ UserID, Body string }
+	// Track inputs for assertions.
+	CreateUserCalledWith struct {
+		UserID   string
+		GoogleID string
+	}
+	CreatePromptCalledWith struct {
+		UserID string
+		Body   string
+	}
 	CreateResponseCalledWith struct {
 		PostID int64
 		UserID string
 		Body   string
+	}
+	UpdateProfileCalledWith struct {
+		UserID string
+		Input  repository.UpdateProfileInput
 	}
 	VoteOnPromptCalledWith struct {
 		UserID   string
@@ -31,7 +44,19 @@ type InMemoryRepository struct {
 	}
 }
 
-func (r *InMemoryRepository) GetOrCreateUser(ctx context.Context, userID, userName string) (*models.User, error) {
+func (r *InMemoryRepository) GetUserByGoogleID(ctx context.Context, googleID string) (*models.User, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	if r.User == nil {
+		return nil, repository.ErrUserNotFound
+	}
+	return r.User, nil
+}
+
+func (r *InMemoryRepository) CreateUser(ctx context.Context, userID, googleID string) (*models.User, error) {
+	r.CreateUserCalledWith.UserID = userID
+	r.CreateUserCalledWith.GoogleID = googleID
 	if r.Err != nil {
 		return nil, r.Err
 	}
@@ -39,6 +64,25 @@ func (r *InMemoryRepository) GetOrCreateUser(ctx context.Context, userID, userNa
 }
 
 func (r *InMemoryRepository) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	return r.User, nil
+}
+
+func (r *InMemoryRepository) GetUserStats(ctx context.Context, userID string) (*models.UserStats, error) {
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	if r.Stats != nil {
+		return r.Stats, nil
+	}
+	return &models.UserStats{}, nil
+}
+
+func (r *InMemoryRepository) UpdateProfile(ctx context.Context, userID string, input repository.UpdateProfileInput) (*models.User, error) {
+	r.UpdateProfileCalledWith.UserID = userID
+	r.UpdateProfileCalledWith.Input = input
 	if r.Err != nil {
 		return nil, r.Err
 	}

@@ -133,10 +133,9 @@ func (r *Repository) VoteOnResponse(ctx context.Context, userID string, response
 	// 4. Fetch and return the updated response
 	var resp models.Response
 	err = r.db.GetContext(ctx, &resp, `
-        SELECT r.response_id, r.post_id, r.user_id, u.user_name, r.body, r.response_upvotes, r.created_at, r.updated_at
-        FROM responses r
-        JOIN users u ON r.user_id = u.user_id
-        WHERE r.response_id = $1;`, responseID)
+        SELECT response_id, post_id, user_id, body, response_upvotes, created_at, updated_at
+        FROM responses
+        WHERE response_id = $1;`, responseID)
 	if err != nil {
 		return nil, fmt.Errorf("repository.VoteOnResponse fetch updated: %w", err)
 	}

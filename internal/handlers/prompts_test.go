@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/algoamigoo/micdrop/internal/config"
 	"github.com/algoamigoo/micdrop/internal/middleware"
 	"github.com/algoamigoo/micdrop/internal/models"
 	"github.com/algoamigoo/micdrop/internal/repository"
@@ -18,6 +19,7 @@ const jwtSecret = "test-secret"
 // setupTestRouter configures a router identical to production, but with our InMemoryRepository
 func setupTestRouter(repo *InMemoryRepository) http.Handler {
 	h := New(repo)
+	authH := NewAuthHandler(repo, &config.Config{JWTSecret: jwtSecret})
 	r := chi.NewRouter()
 
 	r.Route("/api/v1", func(v1 chi.Router) {
@@ -27,7 +29,9 @@ func setupTestRouter(repo *InMemoryRepository) http.Handler {
 			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
 			protected.Post("/responses/{responseID}/upvote", h.UpvoteResponse)
 			protected.Post("/responses/{responseID}/downvote", h.DownvoteResponse)
+			protected.Patch("/users/me", h.UpdateMe)
 		})
+		v1.Post("/auth/complete-signup", authH.CompleteSignup)
 		v1.Get("/prompts", h.ListPrompts)
 		v1.Get("/users/{userID}", h.GetUser)
 		v1.Get("/users/{userID}/prompts", h.ListUserPrompts)
