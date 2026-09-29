@@ -15,7 +15,6 @@ import (
 	"github.com/go-chi/cors"
 )
 
-// Note: signature changed to accept cfg *config.Config
 func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
@@ -40,12 +39,14 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 		// Auth Routes (Public)
 		v1.Get("/auth/google/login", authH.GoogleLogin)
 		v1.Get("/auth/google/callback", authH.GoogleCallback)
+		v1.Post("/auth/complete-signup", authH.CompleteSignup)
 
-		// Protected Routes
+		//Authenticated routes
 		v1.Group(func(protected chi.Router) {
 			protected.Use(mw.RequireAuth(cfg.JWTSecret))
 
 			protected.Get("/auth/me", authH.GetMe)
+			protected.Patch("/users/me", h.UpdateMe)
 
 			// Prompts (Create requires auth)
 			protected.Post("/prompts", h.CreatePrompt)
@@ -61,7 +62,6 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 		})
 
 		// Public Routes
-		v1.Post("/users", h.CreateUser) // Might deprecate this later if OAuth fully replaces it
 		v1.Get("/users/{userID}", h.GetUser)
 		v1.Get("/users/{userID}/prompts", h.ListUserPrompts)
 		v1.Get("/users/{userID}/responses", h.ListUserResponses)
