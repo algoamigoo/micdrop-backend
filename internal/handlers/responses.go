@@ -71,7 +71,7 @@ func (h *Handler) ListResponses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	responses, err := h.Repo.ListResponsesForPrompt(r.Context(), postID, limit, offset)
+	responses, err := h.Repo.ListResponsesForPrompt(r.Context(), postID, limit, offset, middleware.GetUserIDFromContext(r.Context()))
 	if err != nil {
 		handleAppError(w, err)
 		return

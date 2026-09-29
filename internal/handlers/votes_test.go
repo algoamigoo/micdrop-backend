@@ -3,38 +3,83 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/algoamigoo/micdrop/internal/models"
 	"github.com/algoamigoo/micdrop/internal/repository"
 )
 
-func TestUpvoteResponse_Conflict(t *testing.T) {
+func TestSetResponseVote_Success(t *testing.T) {
+	up := "upvote"
 	repo := &InMemoryRepository{
-		Err: repository.ErrAlreadyVoted,
+		Response: &models.Response{ResponseID: 1, UserID: "google_123", ResponseUpvotes: 1, ViewerVote: &up},
 	}
 	router := setupTestRouter(repo)
 	token := generateTestToken(jwtSecret, "google_123", false)
 
-	req := httptest.NewRequest("POST", "/api/v1/responses/1/upvote", nil)
+	req := httptest.NewRequest("PUT", "/api/v1/responses/1/vote", strings.NewReader(`{"vote":"upvote"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusConflict {
-		t.Errorf("expected 409 Conflict, got %d", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if repo.SetResponseVoteCalledWith.VoteType != "upvote" {
+		t.Errorf("expected vote upvote, got %q", repo.SetResponseVoteCalledWith.VoteType)
 	}
 }
 
-func TestUpvoteResponse_NotFound(t *testing.T) {
+func TestSetResponseVote_Clear(t *testing.T) {
+	repo := &InMemoryRepository{
+		Response: &models.Response{ResponseID: 1, ResponseUpvotes: 0},
+	}
+	router := setupTestRouter(repo)
+	token := generateTestToken(jwtSecret, "google_123", false)
+
+	req := httptest.NewRequest("PUT", "/api/v1/responses/1/vote", strings.NewReader(`{"vote":"none"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestSetResponseVote_InvalidVote(t *testing.T) {
+	repo := &InMemoryRepository{
+		Err: repository.ErrInvalidVoteType,
+	}
+	router := setupTestRouter(repo)
+	token := generateTestToken(jwtSecret, "google_123", false)
+
+	req := httptest.NewRequest("PUT", "/api/v1/responses/1/vote", strings.NewReader(`{"vote":"bogus"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestSetResponseVote_NotFound(t *testing.T) {
 	repo := &InMemoryRepository{
 		Err: repository.ErrResponseNotFound,
 	}
 	router := setupTestRouter(repo)
 	token := generateTestToken(jwtSecret, "google_123", false)
 
-	req := httptest.NewRequest("POST", "/api/v1/responses/99/upvote", nil)
+	req := httptest.NewRequest("PUT", "/api/v1/responses/99/vote", strings.NewReader(`{"vote":"upvote"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()
 
@@ -45,20 +90,17 @@ func TestUpvoteResponse_NotFound(t *testing.T) {
 	}
 }
 
-func TestUpvoteResponse_Success(t *testing.T) {
-	repo := &InMemoryRepository{
-		Response: &models.Response{ResponseID: 1, UserID: "google_123", ResponseUpvotes: 1},
-	}
+func TestSetResponseVote_Unauthorized(t *testing.T) {
+	repo := &InMemoryRepository{}
 	router := setupTestRouter(repo)
-	token := generateTestToken(jwtSecret, "google_123", false)
 
-	req := httptest.NewRequest("POST", "/api/v1/responses/1/upvote", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req := httptest.NewRequest("PUT", "/api/v1/responses/1/vote", strings.NewReader(`{"vote":"upvote"}`))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
 	}
 }

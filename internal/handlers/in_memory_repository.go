@@ -37,10 +37,15 @@ type InMemoryRepository struct {
 		UserID string
 		Input  repository.UpdateProfileInput
 	}
-	VoteOnPromptCalledWith struct {
+	SetPromptVoteCalledWith struct {
 		UserID   string
 		PostID   int64
 		VoteType string
+	}
+	SetResponseVoteCalledWith struct {
+		UserID     string
+		ResponseID int64
+		VoteType   string
 	}
 }
 
@@ -98,31 +103,31 @@ func (r *InMemoryRepository) CreatePrompt(ctx context.Context, userID, body stri
 	return r.Prompt, nil
 }
 
-func (r *InMemoryRepository) GetPromptByID(ctx context.Context, postID int64) (*models.Prompt, error) {
+func (r *InMemoryRepository) GetPromptByID(ctx context.Context, postID int64, viewerID string) (*models.Prompt, error) {
 	if r.Err != nil {
 		return nil, r.Err
 	}
 	return r.Prompt, nil
 }
 
-func (r *InMemoryRepository) ListPrompts(ctx context.Context, sort string, limit, offset int) ([]models.Prompt, error) {
+func (r *InMemoryRepository) ListPrompts(ctx context.Context, sort string, limit, offset int, viewerID string) ([]models.Prompt, error) {
 	if r.Err != nil {
 		return nil, r.Err
 	}
 	return r.Prompts, nil
 }
 
-func (r *InMemoryRepository) ListPromptsByUser(ctx context.Context, userID string, limit, offset int) ([]models.Prompt, error) {
+func (r *InMemoryRepository) ListPromptsByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Prompt, error) {
 	if r.Err != nil {
 		return nil, r.Err
 	}
 	return r.Prompts, nil
 }
 
-func (r *InMemoryRepository) VoteOnPrompt(ctx context.Context, userID string, postID int64, voteType string) (*models.Prompt, error) {
-	r.VoteOnPromptCalledWith.UserID = userID
-	r.VoteOnPromptCalledWith.PostID = postID
-	r.VoteOnPromptCalledWith.VoteType = voteType
+func (r *InMemoryRepository) SetPromptVote(ctx context.Context, voterID string, postID int64, vote string) (*models.Prompt, error) {
+	r.SetPromptVoteCalledWith.UserID = voterID
+	r.SetPromptVoteCalledWith.PostID = postID
+	r.SetPromptVoteCalledWith.VoteType = vote
 	if r.Err != nil {
 		return nil, r.Err
 	}
@@ -139,21 +144,24 @@ func (r *InMemoryRepository) CreateResponse(ctx context.Context, postID int64, u
 	return r.Response, nil
 }
 
-func (r *InMemoryRepository) ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int) ([]models.Response, error) {
+func (r *InMemoryRepository) ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int, viewerID string) ([]models.Response, error) {
 	if r.Err != nil {
 		return nil, r.Err
 	}
 	return r.Responses, nil
 }
 
-func (r *InMemoryRepository) ListResponsesByUser(ctx context.Context, userID string, limit, offset int) ([]models.Response, error) {
+func (r *InMemoryRepository) ListResponsesByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Response, error) {
 	if r.Err != nil {
 		return nil, r.Err
 	}
 	return r.Responses, nil
 }
 
-func (r *InMemoryRepository) VoteOnResponse(ctx context.Context, userID string, responseID int64, voteType string) (*models.Response, error) {
+func (r *InMemoryRepository) SetResponseVote(ctx context.Context, voterID string, responseID int64, vote string) (*models.Response, error) {
+	r.SetResponseVoteCalledWith.UserID = voterID
+	r.SetResponseVoteCalledWith.ResponseID = responseID
+	r.SetResponseVoteCalledWith.VoteType = vote
 	if r.Err != nil {
 		return nil, r.Err
 	}

@@ -27,14 +27,17 @@ func setupTestRouter(repo *InMemoryRepository) http.Handler {
 			protected.Use(middleware.RequireAuth(jwtSecret))
 			protected.Post("/prompts", h.CreatePrompt)
 			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
-			protected.Post("/responses/{responseID}/upvote", h.UpvoteResponse)
-			protected.Post("/responses/{responseID}/downvote", h.DownvoteResponse)
+			protected.Put("/prompts/{postID}/vote", h.SetPromptVote)
+			protected.Put("/responses/{responseID}/vote", h.SetResponseVote)
 			protected.Patch("/users/me", h.UpdateMe)
 		})
+		v1.Group(func(public chi.Router) {
+			public.Use(middleware.OptionalAuth(jwtSecret))
+			public.Get("/prompts", h.ListPrompts)
+			public.Get("/users/{userID}", h.GetUser)
+			public.Get("/users/{userID}/prompts", h.ListUserPrompts)
+		})
 		v1.Post("/auth/complete-signup", authH.CompleteSignup)
-		v1.Get("/prompts", h.ListPrompts)
-		v1.Get("/users/{userID}", h.GetUser)
-		v1.Get("/users/{userID}/prompts", h.ListUserPrompts)
 	})
 	return r
 }

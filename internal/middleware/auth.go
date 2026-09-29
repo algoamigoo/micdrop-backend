@@ -75,6 +75,52 @@ func RequireAuth(jwtSecret string) func(http.Handler) http.Handler {
 	}
 }
 
+// OptionalAuth injects the user_id when a valid session JWT is present,
+// otherwise continues anonymously (empty user id). It never rejects.
+func OptionalAuth(jwtSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if userID, ok := parseSessionToken(r, jwtSecret); ok {
+				ctx := context.WithValue(r.Context(), UserIDKey, userID)
+				r = r.WithContext(ctx)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func parseSessionToken(r *http.Request, jwtSecret string) (string, bool) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		return "", false
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return "", false
+	}
+	token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, nil
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return "", false
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", false
+	}
+	if purpose, _ := claims["purpose"].(string); purpose != "session" {
+		return "", false
+	}
+	userID, _ := claims["user_id"].(string)
+	if userID == "" {
+		return "", false
+	}
+	return userID, true
+}
+
 func unauthorized(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
