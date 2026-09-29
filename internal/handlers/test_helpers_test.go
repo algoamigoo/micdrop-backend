@@ -6,9 +6,10 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// generateTestToken creates a valid JWT for testing authenticated routes
+// generateTestToken creates a valid session JWT for testing authenticated routes
 func generateTestToken(secret string, userID string, expired bool) string {
 	claims := jwt.MapClaims{
+		"purpose": "session",
 		"user_id": userID,
 		"iat":     time.Now().Unix(),
 	}

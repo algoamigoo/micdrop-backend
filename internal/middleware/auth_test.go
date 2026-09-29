@@ -20,9 +20,9 @@ func dummyHandler() http.Handler {
 	})
 }
 
-// Local to the middleware package
 func generateTestToken(secret string, userID string, expired bool) string {
 	claims := jwt.MapClaims{
+		"purpose": "session",
 		"user_id": userID,
 		"iat":     time.Now().Unix(),
 	}
@@ -36,6 +36,19 @@ func generateTestToken(secret string, userID string, expired bool) string {
 	tokenStr, _ := token.SignedString([]byte(secret))
 	return tokenStr
 }
+
+func generateOnboardingToken(secret string, googleID string) string {
+	claims := jwt.MapClaims{
+		"purpose":   "onboarding",
+		"google_id": googleID,
+		"iat":       time.Now().Unix(),
+		"exp":       time.Now().Add(15 * time.Minute).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, _ := token.SignedString([]byte(secret))
+	return tokenStr
+}
+
 func TestRequireAuth_MissingHeader(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	rr := httptest.NewRecorder()
@@ -57,50 +70,61 @@ func TestRequireAuth_InvalidScheme(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for wrong scheme, got %d", rr.Code)
+		t.Errorf("expected 401, got %d", rr.Code)
 	}
 }
 
 func TestRequireAuth_InvalidToken(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer invalidtoken123")
+	req.Header.Set("Authorization", "Bearer not-a-real-token")
 	rr := httptest.NewRecorder()
 
 	handler := RequireAuth(testSecret)(dummyHandler())
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for invalid token, got %d", rr.Code)
+		t.Errorf("expected 401, got %d", rr.Code)
 	}
 }
 
 func TestRequireAuth_ExpiredToken(t *testing.T) {
-	token := generateTestToken(testSecret, "user_123", true)
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+generateTestToken(testSecret, "user-1", true))
 	rr := httptest.NewRecorder()
 
 	handler := RequireAuth(testSecret)(dummyHandler())
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 for expired token, got %d", rr.Code)
+		t.Errorf("expected 401, got %d", rr.Code)
 	}
 }
 
-func TestRequireAuth_ValidToken(t *testing.T) {
-	token := generateTestToken(testSecret, "user_123", false)
+func TestRequireAuth_RejectsOnboardingPurpose(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+generateOnboardingToken(testSecret, "google-123"))
+	rr := httptest.NewRecorder()
+
+	handler := RequireAuth(testSecret)(dummyHandler())
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for onboarding-purpose token, got %d", rr.Code)
+	}
+}
+
+func TestRequireAuth_ValidSessionToken(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+generateTestToken(testSecret, "user-1", false))
 	rr := httptest.NewRecorder()
 
 	handler := RequireAuth(testSecret)(dummyHandler())
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for valid token, got %d", rr.Code)
+		t.Errorf("expected 200, got %d", rr.Code)
 	}
-	if rr.Body.String() != "user_123" {
-		t.Errorf("expected body to be user_123, got %s", rr.Body.String())
+	if rr.Body.String() != "user-1" {
+		t.Errorf("expected user-1 in context, got %q", rr.Body.String())
 	}
 }

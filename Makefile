@@ -28,6 +28,9 @@ db-reset:
 	goose -dir migrations reset
 	goose -dir migrations up
 
+db-create:
+	goose -dir migrations create $(name) sql
+
 # --- Application ---
 run:
 	go run cmd/server/main.go
