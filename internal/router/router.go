@@ -54,21 +54,23 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 			// Responses (Create requires auth)
 			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
 
-			// Votes (Require auth)
-			protected.Post("/prompts/{postID}/upvote", h.UpvotePrompt)
-			protected.Post("/prompts/{postID}/downvote", h.DownvotePrompt)
-			protected.Post("/responses/{responseID}/upvote", h.UpvoteResponse)
-			protected.Post("/responses/{responseID}/downvote", h.DownvoteResponse)
+			// Votes (Require auth, idempotent: client sends desired end state)
+			protected.Put("/prompts/{postID}/vote", h.SetPromptVote)
+			protected.Put("/responses/{responseID}/vote", h.SetResponseVote)
 		})
 
-		// Public Routes
-		v1.Get("/users/{userID}", h.GetUser)
-		v1.Get("/users/{userID}/prompts", h.ListUserPrompts)
-		v1.Get("/users/{userID}/responses", h.ListUserResponses)
+		// Public Routes (viewer-aware via OptionalAuth: logged-in users get viewer_vote)
+		v1.Group(func(public chi.Router) {
+			public.Use(mw.OptionalAuth(cfg.JWTSecret))
 
-		v1.Get("/prompts", h.ListPrompts)
-		v1.Get("/prompts/{postID}", h.GetPrompt)
-		v1.Get("/prompts/{postID}/responses", h.ListResponses)
+			public.Get("/users/{userID}", h.GetUser)
+			public.Get("/users/{userID}/prompts", h.ListUserPrompts)
+			public.Get("/users/{userID}/responses", h.ListUserResponses)
+
+			public.Get("/prompts", h.ListPrompts)
+			public.Get("/prompts/{postID}", h.GetPrompt)
+			public.Get("/prompts/{postID}/responses", h.ListResponses)
+		})
 	})
 
 	return r

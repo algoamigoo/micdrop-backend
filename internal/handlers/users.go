@@ -24,15 +24,15 @@ type Repository interface {
 	UpdateProfile(ctx context.Context, userID string, input repository.UpdateProfileInput) (*models.User, error)
 
 	CreatePrompt(ctx context.Context, userID, body string) (*models.Prompt, error)
-	GetPromptByID(ctx context.Context, postID int64) (*models.Prompt, error)
-	ListPrompts(ctx context.Context, sort string, limit, offset int) ([]models.Prompt, error)
-	ListPromptsByUser(ctx context.Context, userID string, limit, offset int) ([]models.Prompt, error)
-	VoteOnPrompt(ctx context.Context, userID string, postID int64, voteType string) (*models.Prompt, error)
+	GetPromptByID(ctx context.Context, postID int64, viewerID string) (*models.Prompt, error)
+	ListPrompts(ctx context.Context, sort string, limit, offset int, viewerID string) ([]models.Prompt, error)
+	ListPromptsByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Prompt, error)
+	SetPromptVote(ctx context.Context, voterID string, postID int64, vote string) (*models.Prompt, error)
 
 	CreateResponse(ctx context.Context, postID int64, userID, body string) (*models.Response, error)
-	ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int) ([]models.Response, error)
-	ListResponsesByUser(ctx context.Context, userID string, limit, offset int) ([]models.Response, error)
-	VoteOnResponse(ctx context.Context, userID string, responseID int64, voteType string) (*models.Response, error)
+	ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int, viewerID string) ([]models.Response, error)
+	ListResponsesByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Response, error)
+	SetResponseVote(ctx context.Context, voterID string, responseID int64, vote string) (*models.Response, error)
 }
 
 type Handler struct {
@@ -170,7 +170,7 @@ func (h *Handler) ListUserPrompts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	prompts, err := h.Repo.ListPromptsByUser(r.Context(), userID, limit, offset)
+	prompts, err := h.Repo.ListPromptsByUser(r.Context(), userID, limit, offset, middleware.GetUserIDFromContext(r.Context()))
 	if err != nil {
 		handleAppError(w, err)
 		return
@@ -200,7 +200,7 @@ func (h *Handler) ListUserResponses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	responses, err := h.Repo.ListResponsesByUser(r.Context(), userID, limit, offset)
+	responses, err := h.Repo.ListResponsesByUser(r.Context(), userID, limit, offset, middleware.GetUserIDFromContext(r.Context()))
 	if err != nil {
 		handleAppError(w, err)
 		return

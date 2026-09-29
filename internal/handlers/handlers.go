@@ -34,7 +34,7 @@ func handleAppError(w http.ResponseWriter, err error) {
 	switch err {
 	case repository.ErrPromptNotFound, repository.ErrResponseNotFound, repository.ErrUserNotFound:
 		respondError(w, http.StatusNotFound, err.Error())
-	case repository.ErrAlreadyVoted, repository.ErrUserIDTaken, repository.ErrGoogleIDTaken:
+	case repository.ErrUserIDTaken, repository.ErrGoogleIDTaken:
 		respondError(w, http.StatusConflict, err.Error())
 	case repository.ErrInvalidVoteType, repository.ErrInvalidLink:
 		respondError(w, http.StatusBadRequest, err.Error())

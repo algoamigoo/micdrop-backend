@@ -49,7 +49,7 @@ func (h *Handler) GetPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prompt, err := h.Repo.GetPromptByID(r.Context(), postID)
+	prompt, err := h.Repo.GetPromptByID(r.Context(), postID, middleware.GetUserIDFromContext(r.Context()))
 	if err != nil {
 		handleAppError(w, err)
 		return
@@ -82,7 +82,7 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	prompts, err := h.Repo.ListPrompts(r.Context(), sort, limit, offset)
+	prompts, err := h.Repo.ListPrompts(r.Context(), sort, limit, offset, middleware.GetUserIDFromContext(r.Context()))
 	if err != nil {
 		handleAppError(w, err)
 		return
