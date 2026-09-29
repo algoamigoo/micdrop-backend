@@ -4,7 +4,10 @@
 
 MicDrop backend is a Go HTTP API backed by PostgreSQL. It uses Chi for routing, `sqlx` over `pgx` for database access, goose-style SQL migrations, and `slog` for structured JSON logging.
 
-The MVP is API-only. Identity is mocked through `user_id` in request bodies and `X-User-ID` for votes.
+The API is versioned under `/api/v1`. Identity is Google OAuth with JWT
+sessions: the session token's `user_id` is the trusted author/voter id on
+writes, and public reads are viewer-aware (they include the caller's
+`viewer_vote` when a valid session token is present).
 
 ## 2. Architecture
 
@@ -60,6 +63,9 @@ Key packages:
 CREATE TABLE users (
     user_id        VARCHAR(50) PRIMARY KEY,
     user_name      VARCHAR(50) NOT NULL,
+    google_id      VARCHAR(100) NOT NULL UNIQUE,
+    bio            VARCHAR(100),
+    links          JSONB,
     prompt_score   INTEGER     NOT NULL DEFAULT 0,
     response_score INTEGER     NOT NULL DEFAULT 0,
     total_score    INTEGER     NOT NULL DEFAULT 0,
@@ -120,16 +126,29 @@ CREATE TABLE response_votes (
 );
 ```
 
+Note: `viewer_vote` (`"upvote" | "downvote" | null`) is not a column. It is
+a read-time `LEFT JOIN` of the viewer's vote row onto prompt/response
+selects, scanned into a nullable model field.
+
 ## 5. Identity and Auth
 
-MVP identity is not authenticated.
+Auth is Google OAuth with two JWT purposes (see `internal/handlers/auth.go`):
 
-- `POST /users` receives `user_id` in the JSON body.
-- `POST /prompts` receives `user_id` in the JSON body.
-- `POST /prompts/{postID}/responses` receives `user_id` in the JSON body.
-- Vote endpoints read `X-User-ID` header.
+- `GET /auth/google/login` redirects to Google consent.
+- `GET /auth/google/callback` exchanges the code: known Google accounts get
+  a session JWT (`purpose: "session"`, 72h) via frontend `?token=`; new
+  Google accounts get an onboarding JWT (`purpose: "onboarding"`, 15m) via
+  `?onboarding=`.
+- `POST /auth/complete-signup` (onboarding JWT only) creates the user row
+  with the chosen `user_id` and returns a session JWT.
 
-Future Phase 2 should replace this with JWT/session auth and use a trusted `user_id` from middleware.
+Middleware (`internal/middleware/auth.go`):
+
+- `RequireAuth` — rejects requests without a valid session token (onboarding
+  tokens rejected); injects `user_id` into context. Used on all writes.
+- `OptionalAuth` — injects `user_id` when a valid session token is present,
+  otherwise continues anonymously. Used on public reads so they can include
+  the caller's `viewer_vote`.
 
 ## 6. API Routing
 
@@ -138,21 +157,26 @@ Router mounts all domain routes under `/api/v1`.
 ```text
 GET  /healthz
 
-POST /api/v1/users
-GET  /api/v1/users/{userID}
+GET  /api/v1/auth/google/login
+GET  /api/v1/auth/google/callback
+POST /api/v1/auth/complete-signup
+GET  /api/v1/auth/me                        (auth)
 
-POST /api/v1/prompts
-GET  /api/v1/prompts
-GET  /api/v1/prompts/{postID}
+PATCH /api/v1/users/me                      (auth)
+GET  /api/v1/users/{userID}                 (optional auth)
+GET  /api/v1/users/{userID}/prompts         (optional auth)
+GET  /api/v1/users/{userID}/responses       (optional auth)
 
-POST /api/v1/prompts/{postID}/upvote
-POST /api/v1/prompts/{postID}/downvote
+POST /api/v1/prompts                        (auth)
+GET  /api/v1/prompts                        (optional auth)
+GET  /api/v1/prompts/{postID}               (optional auth)
 
-POST /api/v1/prompts/{postID}/responses
-GET  /api/v1/prompts/{postID}/responses
+PUT  /api/v1/prompts/{postID}/vote          (auth, {"vote": "upvote"|"downvote"|"none"})
 
-POST /api/v1/responses/{responseID}/upvote
-POST /api/v1/responses/{responseID}/downvote
+POST /api/v1/prompts/{postID}/responses     (auth)
+GET  /api/v1/prompts/{postID}/responses     (optional auth)
+
+PUT  /api/v1/responses/{responseID}/vote    (auth, {"vote": "upvote"|"downvote"|"none"})
 ```
 
 Middleware order:
@@ -165,43 +189,34 @@ Middleware order:
 
 ## 7. Transactions and Consistency
 
-### Create Response
+### Create Prompt / Create Response
 
 Repository starts a transaction:
 
-1. Insert into `responses`.
-2. Update `prompts.response_count = response_count + 1`.
-3. Commit.
+1. Insert into `prompts` / `responses` with the counter preset to `1`.
+2. Insert the author's auto-upvote into `prompt_votes` / `response_votes`.
+3. (Responses only) bump `prompts.response_count`.
+4. Commit, then re-read the row with the author as viewer
+   (`viewer_vote: "upvote"`).
 
-Foreign key errors (`23503`):
-- `responses_user_id_fkey` → `ErrUserNotFound`.
-- Otherwise → `ErrPromptNotFound`.
+The self-vote moves the displayed counter but never karma. Foreign key
+errors (`23503`) map `responses_user_id_fkey` → `ErrUserNotFound`,
+otherwise → `ErrPromptNotFound`.
 
-### Vote on Prompt
+### Set Vote on Prompt / Response
 
-Transaction:
+Votes are idempotent: the client sends the desired end state
+(`upvote` / `downvote` / `none`), and the transaction converges on it:
 
-1. Insert into `prompt_votes`.
-2. Update `prompts.prompt_upvotes`.
-3. Update author `users.prompt_score` and `users.total_score`.
-4. Commit.
-5. Fetch updated prompt outside transaction.
-
-Duplicate vote is detected through PostgreSQL unique violation `23505` and mapped to `ErrAlreadyVoted`.
-Foreign key violation `23503` is mapped to `ErrPromptNotFound`.
-
-### Vote on Response
-
-Transaction:
-
-1. Insert into `response_votes`.
-2. Update `responses.response_upvotes`.
-3. Update author `users.response_score` and `users.total_score`.
-4. Commit.
-5. Fetch updated response.
-
-Duplicate vote is detected through `23505` and mapped to `ErrAlreadyVoted`.
-Foreign key violation `23503` is mapped to `ErrResponseNotFound`.
+1. `SELECT user_id ... FOR UPDATE` on the parent row — serializes votes
+   per item, returns a real 404 when missing, and yields the author id.
+2. Read the voter's old vote (or none); compute `delta = new − old`
+   (`upvote=+1`, `downvote=−1`, `none=0`). `delta == 0` skips all writes.
+3. Delete the vote row (`none`) or upsert it.
+4. Apply `delta` to the denormalized counter.
+5. Apply `delta` to author karma (`prompt_score` / `response_score` +
+   `total_score`) — skipped when voter and author are the same.
+6. Commit, then re-read the row with the voter as viewer.
 
 ## 8. Error Handling
 
@@ -212,9 +227,11 @@ Repository errors:
 | `ErrPromptNotFound` | 404 |
 | `ErrResponseNotFound` | 404 |
 | `ErrUserNotFound` | 404 |
-| `ErrAlreadyVoted` | 409 |
-| `ErrInvalidVoteType` | 400 |
+| `ErrUserIDTaken`, `ErrGoogleIDTaken` | 409 |
+| `ErrInvalidVoteType`, `ErrInvalidLink` | 400 |
 | default | 500 |
+
+Setting the same vote twice is a no-op (no 409 on votes).
 
 Current error body:
 
@@ -259,6 +276,7 @@ Migrations are goose-style SQL files:
 - `20260926125846_responses.sql`
 - `20260926130234_prompt_votes.sql`
 - `20260926130256_response_votes.sql`
+- `20260929090105_userbio.sql` (adds `google_id`, `bio`, `links`)
 
 Run migrations with goose or equivalent before starting the server.
 
@@ -278,37 +296,30 @@ Recommended:
 
 ## 13. Known Gaps / Bugs
 
-1. `VoteOnResponse` selects `u.user_name`, but `models.Response` has no `UserName` field. `sqlx` may fail to scan the extra column.
-2. `GetLeaderboard` exists but no route exposes it.
-3. `ErrSelfVote` is defined but unused.
-4. `AUTO_MIGRATE` is unused.
-5. `internal/middleware` package exists but is empty.
-6. No request body length validation; DB `VARCHAR(280)` errors become `500`.
-7. `CreatePrompt` does not map missing `user_id` to `ErrUserNotFound` (returns `500`).
-8. Vote foreign-key errors (`23503`) cannot distinguish missing voter from missing target, mapping both to `ErrPromptNotFound` / `ErrResponseNotFound`.
-9. List endpoints do not return `total_count`.
-10. Only `newest` and `top` prompt sorting are implemented.
-11. No `GET /responses/{responseID}`.
-12. No self-vote prevention despite PRD/error definition.
-13. No authentication; `X-User-ID` is trusted.
+1. `GetLeaderboard` exists but no route exposes it.
+2. `GetResponseByID` exists but no `GET /responses/{responseID}` route exposes it.
+3. `AUTO_MIGRATE` is loaded but unused.
+4. No request body length validation; DB `VARCHAR(280)` errors become `500`.
+5. `CreatePrompt` does not map a missing `user_id` to `ErrUserNotFound` (returns `500`).
+6. List endpoints do not return `total_count`.
+7. Only `newest` and `top` prompt sorting are implemented.
+8. No rate limiting.
+9. Pre-existing rows have no author auto-vote (only newly created items start at 1).
 
 ## 14. Recommended Roadmap
 
-### Phase 1 fixes
+### Next fixes
 
-- Fix `VoteOnResponse` scan mismatch.
 - Add body length validation.
 - Map missing voter FK errors correctly.
 - Add `GET /responses/{responseID}`.
 - Return `total_count` for list endpoints.
 - Wire `GetLeaderboard` to `GET /leaderboard`.
-- Add self-vote prevention.
+- Repository integration tests (Testcontainers) + vote race tests.
+- Update `docs/ApiContract.md` alongside endpoint changes.
 
-### Phase 2
+### Later
 
-- Real Google OAuth and JWT session implementation.
-- User profile pages (`GET /users/{userID}/prompts`, `GET /users/{userID}/responses`).
-- Vote changes/retractions.
 - Hot/Best/Controversial ranking.
 - Rate limiting.
 - Moderation.
