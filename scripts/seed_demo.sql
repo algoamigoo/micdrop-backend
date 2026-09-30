@@ -1,8 +1,3 @@
--- MicDrop interview-demo seed. Safe to re-run (fixed IDs + ON CONFLICT).
--- Run: psql "$DATABASE_URL" -f scripts/seed_demo.sql
--- Demo login user: demo_host (replace google_id with your real one after first OAuth login
--- so the seeded content shows under your account):
---   UPDATE users SET google_id = '<your-google-id>' WHERE user_id = 'demo_host';
 
 -- 1. Users ---------------------------------------------------------------
 INSERT INTO users (user_id, user_name, google_id, bio, links, prompt_score, response_score, total_score)
