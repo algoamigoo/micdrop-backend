@@ -1,6 +1,3 @@
-# Render Blueprint — backend + Postgres for interview demo
-# Usage: push this repo to GitHub, then Render Dashboard > New > Blueprint > select repo.
-# Then set the secret env vars in the dashboard (see below).
 services:
   - type: web
     name: micdrop-api
