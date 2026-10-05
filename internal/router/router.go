@@ -47,12 +47,18 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 
 			protected.Get("/auth/me", authH.GetMe)
 			protected.Patch("/users/me", h.UpdateMe)
+			protected.Put("/users/{userID}/follow", h.FollowUser)
+			protected.Delete("/users/{userID}/follow", h.UnfollowUser)
 
 			// Prompts (Create requires auth)
 			protected.Post("/prompts", h.CreatePrompt)
+			protected.Patch("/prompts/{postID}", h.UpdatePrompt)
+			protected.Delete("/prompts/{postID}", h.DeletePrompt)
 
 			// Responses (Create requires auth)
 			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
+			protected.Patch("/responses/{responseID}", h.UpdateResponse)
+			protected.Delete("/responses/{responseID}", h.DeleteResponse)
 
 			// Votes (Require auth, idempotent: client sends desired end state)
 			protected.Put("/prompts/{postID}/vote", h.SetPromptVote)
@@ -66,6 +72,8 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 			public.Get("/users/{userID}", h.GetUser)
 			public.Get("/users/{userID}/prompts", h.ListUserPrompts)
 			public.Get("/users/{userID}/responses", h.ListUserResponses)
+			public.Get("/users/{userID}/followers", h.ListFollowers)
+			public.Get("/users/{userID}/following", h.ListFollowing)
 
 			public.Get("/prompts", h.ListPrompts)
 			public.Get("/prompts/{postID}", h.GetPrompt)

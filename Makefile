@@ -1,7 +1,7 @@
 include .env
 export
 
-.PHONY: docker-up docker-down docker-logs db-up db-down db-status db-reset run test test-cover build
+.PHONY: docker-up docker-down docker-logs db-up db-down db-status db-reset run test test-cover test-integration build
 
 # --- Docker Infrastructure ---
 docker-up:
@@ -44,3 +44,6 @@ test:
 
 test-cover:
 	go test -coverprofile=coverage.out ./...
+
+test-integration:
+	go test -tags=integration -v ./internal/repository/

@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/algoamigoo/micdrop/internal/repository"
+	"github.com/go-chi/chi/v5"
 )
 
 // Matches the VARCHAR(280) columns on prompts.body and responses.body, so an
@@ -23,6 +24,36 @@ func validateBody(body string) string {
 		return fmt.Sprintf("body must be at most %d characters", maxBodyLen)
 	}
 	return ""
+}
+
+// pathID parses a numeric chi URL param, writing a 400 and returning ok=false on failure.
+// param is the URL param name; wireName is the field name used in the error message.
+func pathID(w http.ResponseWriter, r *http.Request, param, wireName string) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, param), 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid "+wireName+" format")
+		return 0, false
+	}
+	return id, true
+}
+
+type postBodyRequest struct {
+	Body string `json:"body"`
+}
+
+// decodePostBody reads and validates a {"body": "..."} request, writing a 400 and
+// returning ok=false on failure.
+func decodePostBody(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var req postBodyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return "", false
+	}
+	if msg := validateBody(req.Body); msg != "" {
+		respondError(w, http.StatusBadRequest, msg)
+		return "", false
+	}
+	return req.Body, true
 }
 
 // Invalid or out-of-range values are rejected with 400 rather than coerced.
@@ -83,8 +114,11 @@ func handleAppError(w http.ResponseWriter, err error) {
 		errors.Is(err, repository.ErrGoogleIDTaken):
 		respondError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, repository.ErrInvalidVoteType),
-		errors.Is(err, repository.ErrInvalidLink):
+		errors.Is(err, repository.ErrInvalidLink),
+		errors.Is(err, repository.ErrSelfFollow):
 		respondError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, repository.ErrNotAuthor):
+		respondError(w, http.StatusForbidden, err.Error())
 	default:
 		slog.Error("internal server error", "error", err)
 		respondError(w, http.StatusInternalServerError, "internal server error")

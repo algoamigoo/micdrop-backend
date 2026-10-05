@@ -3,10 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/algoamigoo/micdrop/internal/middleware"
-	"github.com/go-chi/chi/v5"
 )
 
 type setVoteRequest struct {
@@ -22,10 +20,8 @@ func (h *Handler) SetPromptVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	postIDStr := chi.URLParam(r, "postID")
-	postID, err := strconv.ParseInt(postIDStr, 10, 64)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid post_id format")
+	postID, ok := pathID(w, r, "postID", "post_id")
+	if !ok {
 		return
 	}
 
@@ -52,10 +48,8 @@ func (h *Handler) SetResponseVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	responseIDStr := chi.URLParam(r, "responseID")
-	responseID, err := strconv.ParseInt(responseIDStr, 10, 64)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid response_id format")
+	responseID, ok := pathID(w, r, "responseID", "response_id")
+	if !ok {
 		return
 	}
 

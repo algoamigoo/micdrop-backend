@@ -20,18 +20,27 @@ type Repository interface {
 	CreateUser(ctx context.Context, userID, googleID string) (*models.User, error)
 	GetUserByID(ctx context.Context, userID string) (*models.User, error)
 	GetUserStats(ctx context.Context, userID string) (*models.UserStats, error)
+	GetFollowCounts(ctx context.Context, userID, viewerID string) (*models.FollowCounts, error)
 	UpdateProfile(ctx context.Context, userID string, input repository.UpdateProfileInput) (*models.User, error)
+	Follow(ctx context.Context, followerID, followeeID string) error
+	Unfollow(ctx context.Context, followerID, followeeID string) error
+	ListFollowers(ctx context.Context, userID string, limit, offset int) ([]models.User, error)
+	ListFollowing(ctx context.Context, userID string, limit, offset int) ([]models.User, error)
 
 	CreatePrompt(ctx context.Context, userID, body string) (*models.Prompt, error)
 	GetPromptByID(ctx context.Context, postID int64, viewerID string) (*models.Prompt, error)
 	ListPrompts(ctx context.Context, sort string, limit, offset int, viewerID string) ([]models.Prompt, error)
 	ListPromptsByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Prompt, error)
 	SetPromptVote(ctx context.Context, voterID string, postID int64, vote string) (*models.Prompt, error)
+	UpdatePrompt(ctx context.Context, postID int64, userID, body string) (*models.Prompt, error)
+	DeletePrompt(ctx context.Context, postID int64, userID string) error
 
 	CreateResponse(ctx context.Context, postID int64, userID, body string) (*models.Response, error)
 	ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int, viewerID string) ([]models.Response, error)
 	ListResponsesByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Response, error)
 	SetResponseVote(ctx context.Context, voterID string, responseID int64, vote string) (*models.Response, error)
+	UpdateResponse(ctx context.Context, responseID int64, userID, body string) (*models.Response, error)
+	DeleteResponse(ctx context.Context, responseID int64, userID string) error
 }
 
 type Handler struct {
@@ -63,10 +72,103 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	follows, err := h.Repo.GetFollowCounts(r.Context(), userID, middleware.GetUserIDFromContext(r.Context()))
+	if err != nil {
+		handleAppError(w, err)
+		return
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{
-		"user":  user,
-		"stats": stats,
+		"user":    user,
+		"stats":   stats,
+		"follows": follows,
 	})
+}
+
+// ListFollowers handles GET /api/v1/users/{userID}/followers (public).
+func (h *Handler) ListFollowers(w http.ResponseWriter, r *http.Request) {
+	h.listFollowEdges(w, r, true)
+}
+
+// ListFollowing handles GET /api/v1/users/{userID}/following (public).
+func (h *Handler) ListFollowing(w http.ResponseWriter, r *http.Request) {
+	h.listFollowEdges(w, r, false)
+}
+
+// listFollowEdges serves both follow lists; they differ only in which repository
+// method they call.
+func (h *Handler) listFollowEdges(w http.ResponseWriter, r *http.Request, followers bool) {
+	userID := chi.URLParam(r, "userID")
+	if userID == "" {
+		respondError(w, http.StatusBadRequest, "user_id is required in path")
+		return
+	}
+
+	limit, offset, ok := parsePagination(w, r, 20, 100)
+	if !ok {
+		return
+	}
+
+	var (
+		users []models.User
+		err   error
+	)
+	if followers {
+		users, err = h.Repo.ListFollowers(r.Context(), userID, limit, offset)
+	} else {
+		users, err = h.Repo.ListFollowing(r.Context(), userID, limit, offset)
+	}
+	if err != nil {
+		handleAppError(w, err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, users)
+}
+
+// FollowUser handles PUT /api/v1/users/{userID}/follow (auth required).
+// Idempotent: following twice is a no-op, so the client can retry safely.
+func (h *Handler) FollowUser(w http.ResponseWriter, r *http.Request) {
+	followerID := middleware.GetUserIDFromContext(r.Context())
+	if followerID == "" {
+		respondError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	followeeID := chi.URLParam(r, "userID")
+	if followeeID == "" {
+		respondError(w, http.StatusBadRequest, "user_id is required in path")
+		return
+	}
+
+	if err := h.Repo.Follow(r.Context(), followerID, followeeID); err != nil {
+		handleAppError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UnfollowUser handles DELETE /api/v1/users/{userID}/follow (auth required).
+func (h *Handler) UnfollowUser(w http.ResponseWriter, r *http.Request) {
+	followerID := middleware.GetUserIDFromContext(r.Context())
+	if followerID == "" {
+		respondError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	followeeID := chi.URLParam(r, "userID")
+	if followeeID == "" {
+		respondError(w, http.StatusBadRequest, "user_id is required in path")
+		return
+	}
+
+	if err := h.Repo.Unfollow(r.Context(), followerID, followeeID); err != nil {
+		handleAppError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 var allowedLinkTypes = map[string]struct{}{

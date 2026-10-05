@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -117,5 +118,135 @@ func TestCompleteSignup_RejectsSessionToken(t *testing.T) {
 		generateTestToken(jwtSecret, "alice", false), `{"user_id":"alice"}`)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestGoogleLogin_SetsStateCookie(t *testing.T) {
+	rr := httptest.NewRecorder()
+	setupTestRouter(&InMemoryRepository{}).ServeHTTP(rr,
+		httptest.NewRequest("GET", "/api/v1/auth/google/login", nil))
+
+	if rr.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307, got %d", rr.Code)
+	}
+
+	cookie := findCookie(t, rr, oauthStateCookie)
+	if cookie.Value == "" {
+		t.Fatal("expected a state cookie to be set")
+	}
+	if !cookie.HttpOnly {
+		t.Error("state cookie must be httpOnly so scripts cannot read it")
+	}
+	if cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("state cookie must be SameSite=Lax to survive the Google redirect, got %v", cookie.SameSite)
+	}
+
+	loc, err := url.Parse(rr.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	if q := loc.Query().Get("state"); q != cookie.Value {
+		t.Errorf("state in redirect = %q, want it to equal the cookie value %q", q, cookie.Value)
+	}
+}
+
+// Two logins must not reuse the same state value.
+func TestGoogleLogin_StateIsNotConstant(t *testing.T) {
+	state := func() string {
+		rr := httptest.NewRecorder()
+		setupTestRouter(&InMemoryRepository{}).ServeHTTP(rr,
+			httptest.NewRequest("GET", "/api/v1/auth/google/login", nil))
+		return findCookie(t, rr, oauthStateCookie).Value
+	}
+	if a, b := state(), state(); a == b {
+		t.Errorf("expected a fresh state per login, got %q twice", a)
+	}
+}
+
+func findCookie(t *testing.T, rr *httptest.ResponseRecorder, name string) *http.Cookie {
+	t.Helper()
+	for _, c := range (&http.Response{Header: rr.Header()}).Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("cookie %s not set", name)
+	return nil
+}
+
+func TestGoogleCallback_RejectsStateMismatch(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/auth/google/callback?code=fake&state=attacker-state", nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "victim-state"})
+	rr := httptest.NewRecorder()
+
+	setupTestRouter(&InMemoryRepository{}).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for mismatched state, got %d", rr.Code)
+	}
+}
+
+func TestGoogleCallback_RejectsMissingStateCookie(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/auth/google/callback?code=fake&state=some-state", nil)
+	rr := httptest.NewRecorder()
+
+	setupTestRouter(&InMemoryRepository{}).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 without a state cookie, got %d", rr.Code)
+	}
+}
+
+func TestGoogleCallback_RejectsMissingStateParam(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/auth/google/callback?code=fake", nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "some-state"})
+	rr := httptest.NewRecorder()
+
+	setupTestRouter(&InMemoryRepository{}).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 without a state param, got %d", rr.Code)
+	}
+}
+
+// A matching state must clear the cookie so it cannot be replayed.
+func TestCheckOAuthState_MatchingStateClearsCookie(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/v1/auth/google/callback?code=fake&state=good-state", nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookie, Value: "good-state"})
+	rr := httptest.NewRecorder()
+
+	if err := checkOAuthState(rr, req); err != nil {
+		t.Fatalf("expected the state check to pass, got %v", err)
+	}
+
+	cleared := false
+	for _, c := range (&http.Response{Header: rr.Header()}).Cookies() {
+		if c.Name == oauthStateCookie && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Error("expected the state cookie to be cleared")
+	}
+}
+
+func TestCheckOAuthState_Rejects(t *testing.T) {
+	cases := map[string]struct {
+		cookie *http.Cookie
+		query  string
+	}{
+		"mismatched state": {cookie: &http.Cookie{Name: oauthStateCookie, Value: "victim-state"}, query: "attacker-state"},
+		"missing cookie":   {query: "some-state"},
+		"missing param":    {cookie: &http.Cookie{Name: oauthStateCookie, Value: "some-state"}},
+		"empty cookie":     {cookie: &http.Cookie{Name: oauthStateCookie, Value: ""}, query: ""},
+	}
+	for name, tc := range cases {
+		req := httptest.NewRequest("GET", "/api/v1/auth/google/callback?code=fake&state="+tc.query, nil)
+		if tc.cookie != nil {
+			req.AddCookie(tc.cookie)
+		}
+		if err := checkOAuthState(httptest.NewRecorder(), req); err == nil {
+			t.Errorf("%s: expected an error, got nil", name)
+		}
 	}
 }

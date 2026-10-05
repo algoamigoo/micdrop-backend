@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -20,6 +23,20 @@ type AuthHandler struct {
 	Repo        Repository
 	Config      *config.Config
 	OAuthConfig *oauth2.Config
+}
+
+const (
+	oauthStateCookie = "micdrop_oauth_state"
+	oauthStateTTL    = 10 * time.Minute
+)
+
+// newOAuthState returns a 256-bit random, URL-safe nonce for one login attempt.
+func newOAuthState() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 var (
@@ -45,10 +62,63 @@ func NewAuthHandler(repo Repository, cfg *config.Config) *AuthHandler {
 }
 
 // GoogleLogin redirects the user to Google's consent page.
+// A fresh random state is stored in an httpOnly cookie and echoed to Google; the
+// callback compares the two, which is what stops login CSRF.
 // GET /api/v1/auth/google/login
 func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
-	url := h.OAuthConfig.AuthCodeURL("state-token", oauth2.AccessTypeOnline)
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	state, err := newOAuthState()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "could not start login")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    state,
+		Path:     "/",
+		MaxAge:   int(oauthStateTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.Redirect(w, r, h.OAuthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline), http.StatusTemporaryRedirect)
+}
+
+// checkOAuthState verifies the state parameter against the cookie set at login and
+// clears the cookie, so each state value is single-use. Returns an error describing
+// the mismatch; the caller turns it into a 400.
+func checkOAuthState(w http.ResponseWriter, r *http.Request) error {
+	cookie, err := r.Cookie(oauthStateCookie)
+	if err != nil {
+		return errors.New("login session expired, please try signing in again")
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	got := r.URL.Query().Get("state")
+	if got == "" {
+		return errors.New("missing state parameter")
+	}
+	if subtle.ConstantTimeCompare([]byte(got), []byte(cookie.Value)) != 1 {
+		return errors.New("state mismatch, please try signing in again")
+	}
+	return nil
+}
+
+// requestIsHTTPS reports whether the request reached us over TLS, directly or via proxy.
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // GoogleCallback exchanges the code, then either:
@@ -57,6 +127,11 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/v1/auth/google/callback
 func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+	if err := checkOAuthState(w, r); err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		respondError(w, http.StatusBadRequest, "Code not found")

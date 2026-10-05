@@ -3,10 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/algoamigoo/micdrop/internal/middleware"
-	"github.com/go-chi/chi/v5"
 )
 
 type createPromptRequest struct {
@@ -42,10 +40,8 @@ func (h *Handler) CreatePrompt(w http.ResponseWriter, r *http.Request) {
 
 // GetPrompt handles GET /api/v1/prompts/{postID}
 func (h *Handler) GetPrompt(w http.ResponseWriter, r *http.Request) {
-	postIDStr := chi.URLParam(r, "postID")
-	postID, err := strconv.ParseInt(postIDStr, 10, 64)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid post_id format")
+	postID, ok := pathID(w, r, "postID", "post_id")
+	if !ok {
 		return
 	}
 
@@ -78,4 +74,53 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, prompts)
+}
+
+// UpdatePrompt handles PATCH /api/v1/prompts/{postID} (auth required, author only).
+func (h *Handler) UpdatePrompt(w http.ResponseWriter, r *http.Request) {
+	postID, ok := pathID(w, r, "postID", "post_id")
+	if !ok {
+		return
+	}
+
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		respondError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	body, ok := decodePostBody(w, r)
+	if !ok {
+		return
+	}
+
+	prompt, err := h.Repo.UpdatePrompt(r.Context(), postID, userID, body)
+	if err != nil {
+		handleAppError(w, err)
+		return
+	}
+
+	respondJSON(w, http.StatusOK, prompt)
+}
+
+// DeletePrompt handles DELETE /api/v1/prompts/{postID} (auth required, author only).
+// Soft-deletes the prompt and its responses, leaving scores and karma intact.
+func (h *Handler) DeletePrompt(w http.ResponseWriter, r *http.Request) {
+	postID, ok := pathID(w, r, "postID", "post_id")
+	if !ok {
+		return
+	}
+
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		respondError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	if err := h.Repo.DeletePrompt(r.Context(), postID, userID); err != nil {
+		handleAppError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

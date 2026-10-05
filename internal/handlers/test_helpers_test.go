@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"net/http/httptest"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -22,4 +25,16 @@ func generateTestToken(secret string, userID string, expired bool) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := token.SignedString([]byte(secret))
 	return tokenStr
+}
+
+func postRequest(t *testing.T, method, path, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rr := httptest.NewRecorder()
+	setupTestRouter(&InMemoryRepository{}).ServeHTTP(rr, req)
+	return rr
 }

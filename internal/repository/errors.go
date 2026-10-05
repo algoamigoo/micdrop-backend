@@ -20,4 +20,11 @@ var (
 
 	// ErrInvalidLink is returned when a profile link has a bad type or URL.
 	ErrInvalidLink = errors.New("invalid profile link")
+
+	// ErrNotAuthor is returned when a user tries to edit or delete content
+	// authored by someone else.
+	ErrNotAuthor = errors.New("only the author can modify this")
+
+	// ErrSelfFollow is returned when a user tries to follow themselves.
+	ErrSelfFollow = errors.New("you cannot follow yourself")
 )
