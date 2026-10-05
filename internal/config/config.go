@@ -9,7 +9,6 @@ type Config struct {
 	Port           string
 	DatabaseURL    string
 	AllowedOrigins []string
-	AutoMigrate    bool
 	LogLevel       string
 
 	GoogleClientID     string
@@ -30,7 +29,6 @@ func Load() *Config {
 		Port:           port,
 		DatabaseURL:    dbURL,
 		AllowedOrigins: origins,
-		AutoMigrate:    getenv("AUTO_MIGRATE", "true") == "true",
 		LogLevel:       getenv("LOG_LEVEL", "info"),
 
 		GoogleClientID:     getenv("GOOGLE_CLIENT_ID", ""),

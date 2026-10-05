@@ -3,8 +3,10 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/algoamigoo/micdrop/internal/config"
@@ -74,6 +76,86 @@ func TestCreatePrompt_EmptyBody(t *testing.T) {
 	}
 }
 
+func TestCreatePrompt_BodyTooLong(t *testing.T) {
+	repo := &InMemoryRepository{}
+	router := setupTestRouter(repo)
+	token := generateTestToken(jwtSecret, "google_123", false)
+
+	body, _ := json.Marshal(map[string]string{"body": strings.Repeat("a", maxBodyLen+1)})
+	req := httptest.NewRequest("POST", "/api/v1/prompts", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for over-long body, got %d", rr.Code)
+	}
+	if repo.Prompt != nil {
+		t.Error("repository should not be called for an over-long body")
+	}
+}
+
+func TestCreatePrompt_BodyAtMaxLength(t *testing.T) {
+	repo := &InMemoryRepository{
+		Prompt: &models.Prompt{PostID: 1, UserID: "google_123", Body: strings.Repeat("a", maxBodyLen)},
+	}
+	router := setupTestRouter(repo)
+	token := generateTestToken(jwtSecret, "google_123", false)
+
+	body, _ := json.Marshal(map[string]string{"body": strings.Repeat("a", maxBodyLen)})
+	req := httptest.NewRequest("POST", "/api/v1/prompts", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Errorf("expected 201 at exactly maxBodyLen, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestListPrompts_InvalidPagination(t *testing.T) {
+	cases := []string{"?limit=abc", "?limit=0", "?limit=51", "?offset=-1", "?offset=x"}
+	for _, q := range cases {
+		repo := &InMemoryRepository{}
+		router := setupTestRouter(repo)
+		token := generateTestToken(jwtSecret, "google_123", false)
+
+		req := httptest.NewRequest("GET", "/api/v1/prompts"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %d", q, rr.Code)
+		}
+	}
+}
+
+func TestListPrompts_ValidPagination(t *testing.T) {
+	for _, q := range []string{"", "?limit=50&offset=20", "?limit=1"} {
+		repo := &InMemoryRepository{Prompts: []models.Prompt{}}
+		router := setupTestRouter(repo)
+		token := generateTestToken(jwtSecret, "google_123", false)
+
+		req := httptest.NewRequest("GET", "/api/v1/prompts"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", q, rr.Code)
+		}
+	}
+}
+
+// The repository's own foreign-key -> ErrUserNotFound mapping needs a live Postgres
+// and is not covered here.
 func TestCreatePrompt_DBError(t *testing.T) {
 	repo := &InMemoryRepository{
 		Err: repository.ErrUserNotFound, // Simulate user doesn't exist in DB
@@ -90,6 +172,26 @@ func TestCreatePrompt_DBError(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for missing user, got %d", rr.Code)
+	}
+}
+
+// Repository errors arrive wrapped, so handleAppError must use errors.Is.
+func TestCreatePrompt_WrappedRepoErrorIsMapped(t *testing.T) {
+	repo := &InMemoryRepository{
+		Err: fmt.Errorf("repository.CreatePrompt insert: %w", repository.ErrUserNotFound),
+	}
+	router := setupTestRouter(repo)
+	token := generateTestToken(jwtSecret, "google_123", false)
+
+	req := httptest.NewRequest("POST", "/api/v1/prompts", bytes.NewBufferString(`{"body":"test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for wrapped ErrUserNotFound, got %d", rr.Code)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -157,17 +156,9 @@ func (h *Handler) ListUserPrompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 10
-	offset := 0
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if val, err := strconv.Atoi(l); err == nil && val > 0 && val <= 50 {
-			limit = val
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
-			offset = val
-		}
+	limit, offset, ok := parsePagination(w, r, 10, 50)
+	if !ok {
+		return
 	}
 
 	prompts, err := h.Repo.ListPromptsByUser(r.Context(), userID, limit, offset, middleware.GetUserIDFromContext(r.Context()))
@@ -187,17 +178,9 @@ func (h *Handler) ListUserResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 10
-	offset := 0
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if val, err := strconv.Atoi(l); err == nil && val > 0 && val <= 50 {
-			limit = val
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
-			offset = val
-		}
+	limit, offset, ok := parsePagination(w, r, 10, 50)
+	if !ok {
+		return
 	}
 
 	responses, err := h.Repo.ListResponsesByUser(r.Context(), userID, limit, offset, middleware.GetUserIDFromContext(r.Context()))

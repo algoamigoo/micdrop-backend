@@ -51,8 +51,9 @@ func run() error {
 		Handler:           handler,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Must be >= the chi middleware.Timeout in router.New.
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Buffered so the goroutine can't block/leak if run() returns via the

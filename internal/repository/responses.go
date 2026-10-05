@@ -13,7 +13,7 @@ import (
 // CreateResponse inserts a response, bumps the parent's response_count,
 // and records the author's auto-upvote (counter starts at 1, no karma for self-vote).
 func (r *Repository) CreateResponse(ctx context.Context, postID int64, userID, body string) (*models.Response, error) {
-	tx, err := r.db.Beginx()
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("repository.CreateResponse begin tx: %w", err)
 	}

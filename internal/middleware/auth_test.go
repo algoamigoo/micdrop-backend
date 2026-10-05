@@ -113,6 +113,56 @@ func TestRequireAuth_RejectsOnboardingPurpose(t *testing.T) {
 	}
 }
 
+// alg=none: must be rejected unless the keyfunc returns an error.
+func TestRequireAuth_RejectsNonHMACToken(t *testing.T) {
+	claims := jwt.MapClaims{
+		"purpose": "session",
+		"user_id": "attacker",
+		"exp":     time.Now().Add(1 * time.Hour).Unix(),
+	}
+	unsigned, err := jwt.NewWithClaims(jwt.SigningMethodNone, claims).
+		SignedString(jwt.UnsafeAllowNoneSignatureType)
+	if err != nil {
+		t.Fatalf("build unsigned token: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+unsigned)
+	rr := httptest.NewRecorder()
+
+	RequireAuth(testSecret)(dummyHandler()).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for alg=none token, got %d", rr.Code)
+	}
+	if rr.Body.String() == "attacker" {
+		t.Error("unsigned token was accepted")
+	}
+}
+
+func TestOptionalAuth_IgnoresNonHMACToken(t *testing.T) {
+	claims := jwt.MapClaims{
+		"purpose": "session",
+		"user_id": "attacker",
+		"exp":     time.Now().Add(1 * time.Hour).Unix(),
+	}
+	unsigned, err := jwt.NewWithClaims(jwt.SigningMethodNone, claims).
+		SignedString(jwt.UnsafeAllowNoneSignatureType)
+	if err != nil {
+		t.Fatalf("build unsigned token: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+unsigned)
+	rr := httptest.NewRecorder()
+
+	OptionalAuth(testSecret)(dummyHandler()).ServeHTTP(rr, req)
+
+	if rr.Body.String() != "" {
+		t.Errorf("expected anonymous user id, got %q", rr.Body.String())
+	}
+}
+
 func TestRequireAuth_ValidSessionToken(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Authorization", "Bearer "+generateTestToken(testSecret, "user-1", false))

@@ -7,12 +7,13 @@ import (
 	"fmt"
 
 	"github.com/algoamigoo/micdrop/internal/models"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // CreatePrompt inserts a new prompt plus the author's auto-upvote (counter starts at 1).
 // The self-vote counts toward the displayed count but not toward author karma.
 func (r *Repository) CreatePrompt(ctx context.Context, userID, body string) (*models.Prompt, error) {
-	tx, err := r.db.Beginx()
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("repository.CreatePrompt begin tx: %w", err)
 	}
@@ -24,6 +25,11 @@ func (r *Repository) CreatePrompt(ctx context.Context, userID, body string) (*mo
         VALUES ($1, $2, 1)
         RETURNING post_id;`, userID, body).Scan(&postID)
 	if err != nil {
+		// Foreign-key violation: the author does not exist.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return nil, ErrUserNotFound
+		}
 		return nil, fmt.Errorf("repository.CreatePrompt insert: %w", err)
 	}
 

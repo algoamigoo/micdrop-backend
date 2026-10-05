@@ -20,4 +20,5 @@ COPY migrations ./migrations
 EXPOSE 3000
 # Railway/Render inject PORT and DATABASE_URL at runtime.
 # Migrate first (GOOSE_DBSTRING falls back to DATABASE_URL), then start.
-CMD ["sh", "-c", "export GOOSE_DRIVER=${GOOSE_DRIVER:-postgres}; export GOOSE_DBSTRING=${GOOSE_DBSTRING:-$DATABASE_URL}; /usr/local/bin/goose -dir ./migrations up || echo 'migration warning (continuing)'; exec /app/micdrop"]
+# A failed migration aborts the boot: never serve traffic against a stale schema.
+CMD ["sh", "-c", "export GOOSE_DRIVER=${GOOSE_DRIVER:-postgres}; export GOOSE_DBSTRING=${GOOSE_DBSTRING:-$DATABASE_URL}; /usr/local/bin/goose -dir ./migrations up || exit 1; exec /app/micdrop"]

@@ -33,8 +33,8 @@ func (h *Handler) CreateResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Body == "" {
-		respondError(w, http.StatusBadRequest, "body is required")
+	if msg := validateBody(req.Body); msg != "" {
+		respondError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -56,19 +56,9 @@ func (h *Handler) ListResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pagination defaults
-	limit := 20
-	offset := 0
-
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if val, err := strconv.Atoi(l); err == nil && val > 0 && val <= 100 {
-			limit = val
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
-			offset = val
-		}
+	limit, offset, ok := parsePagination(w, r, 20, 100)
+	if !ok {
+		return
 	}
 
 	responses, err := h.Repo.ListResponsesForPrompt(r.Context(), postID, limit, offset, middleware.GetUserIDFromContext(r.Context()))

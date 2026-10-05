@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -12,6 +13,16 @@ import (
 type contextKey string
 
 const UserIDKey contextKey = "user_id"
+
+// Rejects non-HMAC algorithms (alg confusion / "none" attacks) by failing the parse.
+func hmacKeyfunc(jwtSecret string) jwt.Keyfunc {
+	return func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected JWT signing method: %v", token.Header["alg"])
+		}
+		return []byte(jwtSecret), nil
+	}
+}
 
 // GetUserIDFromContext retrieves the authenticated user's ID from the request context.
 func GetUserIDFromContext(ctx context.Context) string {
@@ -39,12 +50,7 @@ func RequireAuth(jwtSecret string) func(http.Handler) http.Handler {
 			}
 
 			tokenStr := parts[1]
-			token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, nil
-				}
-				return []byte(jwtSecret), nil
-			})
+			token, err := jwt.Parse(tokenStr, hmacKeyfunc(jwtSecret))
 
 			if err != nil || !token.Valid {
 				unauthorized(w, "Invalid or expired token")
@@ -98,12 +104,7 @@ func parseSessionToken(r *http.Request, jwtSecret string) (string, bool) {
 	if len(parts) != 2 || parts[0] != "Bearer" {
 		return "", false
 	}
-	token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, nil
-		}
-		return []byte(jwtSecret), nil
-	})
+	token, err := jwt.Parse(parts[1], hmacKeyfunc(jwtSecret))
 	if err != nil || !token.Valid {
 		return "", false
 	}

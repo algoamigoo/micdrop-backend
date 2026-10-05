@@ -26,8 +26,8 @@ func (h *Handler) CreatePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Body == "" {
-		respondError(w, http.StatusBadRequest, "body is required")
+	if msg := validateBody(req.Body); msg != "" {
+		respondError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -66,20 +66,9 @@ func (h *Handler) ListPrompts(w http.ResponseWriter, r *http.Request) {
 		sort = "newest"
 	}
 
-	limitStr := r.URL.Query().Get("limit")
-	limit := 10 // Default limit
-	if limitStr != "" {
-		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 && val <= 50 {
-			limit = val
-		}
-	}
-
-	offsetStr := r.URL.Query().Get("offset")
-	offset := 0 // Default offset
-	if offsetStr != "" {
-		if val, err := strconv.Atoi(offsetStr); err == nil && val >= 0 {
-			offset = val
-		}
+	limit, offset, ok := parsePagination(w, r, 10, 50)
+	if !ok {
+		return
 	}
 
 	prompts, err := h.Repo.ListPrompts(r.Context(), sort, limit, offset, middleware.GetUserIDFromContext(r.Context()))

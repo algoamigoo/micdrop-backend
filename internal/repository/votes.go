@@ -41,7 +41,7 @@ func (r *Repository) SetPromptVote(ctx context.Context, voterID string, postID i
 		return nil, err
 	}
 
-	tx, err := r.db.Beginx()
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("repository.SetPromptVote begin tx: %w", err)
 	}
@@ -122,7 +122,7 @@ func (r *Repository) SetResponseVote(ctx context.Context, voterID string, respon
 		return nil, err
 	}
 
-	tx, err := r.db.Beginx()
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("repository.SetResponseVote begin tx: %w", err)
 	}

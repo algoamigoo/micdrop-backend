@@ -103,6 +103,10 @@ are ignored (anonymous view), never rejected.
 `prompt_score` / `response_score` are net karma **excluding self-votes**;
 `total_score` is their sum.
 
+`links` is `null` when the user has never set any (the column is nullable), and an
+array once set — including `[]` after an explicit clear via `PATCH /users/me`.
+Clients must treat `null` as "no links".
+
 ### Prompt
 
 ```json

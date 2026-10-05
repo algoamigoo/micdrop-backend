@@ -250,10 +250,8 @@ Environment variables:
 | `PORT` | `3000` |
 | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/micdrop?sslmode=disable` |
 | `ALLOWED_ORIGINS` | `*` |
-| `AUTO_MIGRATE` | `true` |
 | `LOG_LEVEL` | `info` |
 
-`AUTO_MIGRATE` is currently loaded but not used.
 
 ## 10. Observability
 
@@ -298,13 +296,10 @@ Recommended:
 
 1. `GetLeaderboard` exists but no route exposes it.
 2. `GetResponseByID` exists but no `GET /responses/{responseID}` route exposes it.
-3. `AUTO_MIGRATE` is loaded but unused.
-4. No request body length validation; DB `VARCHAR(280)` errors become `500`.
-5. `CreatePrompt` does not map a missing `user_id` to `ErrUserNotFound` (returns `500`).
-6. List endpoints do not return `total_count`.
-7. Only `newest` and `top` prompt sorting are implemented.
-8. No rate limiting.
-9. Pre-existing rows have no author auto-vote (only newly created items start at 1).
+3. List endpoints do not return `total_count`.
+4. Only `newest` and `top` prompt sorting are implemented.
+5. No rate limiting.
+6. Pre-existing rows have no author auto-vote (only newly created items start at 1).
 
 ## 14. Recommended Roadmap
 

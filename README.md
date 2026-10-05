@@ -41,7 +41,6 @@ All via environment (see `internal/config/config.go`):
 | `PORT` | `3000` | HTTP listen port |
 | `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/micdrop?sslmode=disable` | Postgres DSN |
 | `ALLOWED_ORIGINS` | `*` | CORS origins (comma-separated) |
-| `AUTO_MIGRATE` | `true` | Reserved (currently unused) |
 | `LOG_LEVEL` | `info` | `slog` level |
 | `GOOGLE_CLIENT_ID` | — | OAuth client id |
 | `GOOGLE_CLIENT_SECRET` | — | OAuth client secret |

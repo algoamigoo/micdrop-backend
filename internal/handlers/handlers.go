@@ -2,11 +2,53 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/algoamigoo/micdrop/internal/repository"
 )
+
+// Matches the VARCHAR(280) columns on prompts.body and responses.body, so an
+// over-long body is a 400 instead of a Postgres 22001 surfaced as 500.
+const maxBodyLen = 280
+
+func validateBody(body string) string {
+	if body == "" {
+		return "body is required"
+	}
+	if n := len([]rune(body)); n > maxBodyLen {
+		return fmt.Sprintf("body must be at most %d characters", maxBodyLen)
+	}
+	return ""
+}
+
+// Invalid or out-of-range values are rejected with 400 rather than coerced.
+func parsePagination(w http.ResponseWriter, r *http.Request, defaultLimit, maxLimit int) (limit, offset int, ok bool) {
+	limit, offset = defaultLimit, 0
+
+	if s := r.URL.Query().Get("limit"); s != "" {
+		val, err := strconv.Atoi(s)
+		if err != nil || val < 1 || val > maxLimit {
+			respondError(w, http.StatusBadRequest, fmt.Sprintf("limit must be an integer between 1 and %d", maxLimit))
+			return 0, 0, false
+		}
+		limit = val
+	}
+
+	if s := r.URL.Query().Get("offset"); s != "" {
+		val, err := strconv.Atoi(s)
+		if err != nil || val < 0 {
+			respondError(w, http.StatusBadRequest, "offset must be an integer >= 0")
+			return 0, 0, false
+		}
+		offset = val
+	}
+
+	return limit, offset, true
+}
 
 // envelope is a standard wrapper for all our JSON responses.
 type envelope map[string]any
@@ -29,14 +71,19 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	json.NewEncoder(w).Encode(envelope{"error": message})
 }
 
-// handleAppError maps repository errors to the correct HTTP status code.
+// handleAppError maps repository errors to HTTP status codes. errors.Is, not ==
+// because the repository wraps its errors with %w.
 func handleAppError(w http.ResponseWriter, err error) {
-	switch err {
-	case repository.ErrPromptNotFound, repository.ErrResponseNotFound, repository.ErrUserNotFound:
+	switch {
+	case errors.Is(err, repository.ErrPromptNotFound),
+		errors.Is(err, repository.ErrResponseNotFound),
+		errors.Is(err, repository.ErrUserNotFound):
 		respondError(w, http.StatusNotFound, err.Error())
-	case repository.ErrUserIDTaken, repository.ErrGoogleIDTaken:
+	case errors.Is(err, repository.ErrUserIDTaken),
+		errors.Is(err, repository.ErrGoogleIDTaken):
 		respondError(w, http.StatusConflict, err.Error())
-	case repository.ErrInvalidVoteType, repository.ErrInvalidLink:
+	case errors.Is(err, repository.ErrInvalidVoteType),
+		errors.Is(err, repository.ErrInvalidLink):
 		respondError(w, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("internal server error", "error", err)

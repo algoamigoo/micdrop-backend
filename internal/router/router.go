@@ -24,7 +24,7 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   cfg.AllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization", "X-User-ID"},
+		AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -85,21 +85,34 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // requestLogger logs one structured line per request: method, path, status,
-// response size, latency
+// response size, latency. Logging happens in a defer so panicking requests are
+// still recorded; the panic is re-raised for the Recoverer.
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, req.ProtoMajor)
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("http_request_panic",
+						"method", req.Method,
+						"path", req.URL.Path,
+						"duration_ms", time.Since(start).Milliseconds(),
+						"request_id", middleware.GetReqID(req.Context()),
+						"panic", r,
+					)
+					panic(r)
+				}
+				logger.Info("http_request",
+					"method", req.Method,
+					"path", req.URL.Path,
+					"status", ww.Status(),
+					"bytes", ww.BytesWritten(),
+					"duration_ms", time.Since(start).Milliseconds(),
+					"request_id", middleware.GetReqID(req.Context()),
+				)
+			}()
 			next.ServeHTTP(ww, req)
-			logger.Info("http_request",
-				"method", req.Method,
-				"path", req.URL.Path,
-				"status", ww.Status(),
-				"bytes", ww.BytesWritten(),
-				"duration_ms", time.Since(start).Milliseconds(),
-				"request_id", middleware.GetReqID(req.Context()),
-			)
 		})
 	}
 }
