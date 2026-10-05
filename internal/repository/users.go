@@ -137,8 +137,8 @@ func (r *Repository) UpdateProfile(ctx context.Context, userID string, input Upd
 func (r *Repository) GetUserStats(ctx context.Context, userID string) (*models.UserStats, error) {
 	query := `
         SELECT
-            (SELECT COUNT(*) FROM prompts   p WHERE p.user_id = u.user_id) AS prompt_count,
-            (SELECT COUNT(*) FROM responses r WHERE r.user_id = u.user_id) AS response_count
+            (SELECT COUNT(*) FROM prompts   p WHERE p.user_id = u.user_id AND p.deleted_at IS NULL) AS prompt_count,
+            (SELECT COUNT(*) FROM responses r WHERE r.user_id = u.user_id AND r.deleted_at IS NULL) AS response_count
         FROM users u
         WHERE u.user_id = $1;`
 

@@ -28,6 +28,24 @@ type InMemoryRepository struct {
 		UserID string
 		Body   string
 	}
+	UpdatePromptCalledWith struct {
+		PostID int64
+		UserID string
+		Body   string
+	}
+	DeletePromptCalledWith struct {
+		PostID int64
+		UserID string
+	}
+	UpdateResponseCalledWith struct {
+		ResponseID int64
+		UserID     string
+		Body       string
+	}
+	DeleteResponseCalledWith struct {
+		ResponseID int64
+		UserID     string
+	}
 	CreateResponseCalledWith struct {
 		PostID int64
 		UserID string
@@ -103,6 +121,22 @@ func (r *InMemoryRepository) CreatePrompt(ctx context.Context, userID, body stri
 	return r.Prompt, nil
 }
 
+func (r *InMemoryRepository) UpdatePrompt(ctx context.Context, postID int64, userID, body string) (*models.Prompt, error) {
+	r.UpdatePromptCalledWith.UserID = userID
+	r.UpdatePromptCalledWith.PostID = postID
+	r.UpdatePromptCalledWith.Body = body
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	return r.Prompt, nil
+}
+
+func (r *InMemoryRepository) DeletePrompt(ctx context.Context, postID int64, userID string) error {
+	r.DeletePromptCalledWith.UserID = userID
+	r.DeletePromptCalledWith.PostID = postID
+	return r.Err
+}
+
 func (r *InMemoryRepository) GetPromptByID(ctx context.Context, postID int64, viewerID string) (*models.Prompt, error) {
 	if r.Err != nil {
 		return nil, r.Err
@@ -142,6 +176,22 @@ func (r *InMemoryRepository) CreateResponse(ctx context.Context, postID int64, u
 		return nil, r.Err
 	}
 	return r.Response, nil
+}
+
+func (r *InMemoryRepository) UpdateResponse(ctx context.Context, responseID int64, userID, body string) (*models.Response, error) {
+	r.UpdateResponseCalledWith.ResponseID = responseID
+	r.UpdateResponseCalledWith.UserID = userID
+	r.UpdateResponseCalledWith.Body = body
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	return r.Response, nil
+}
+
+func (r *InMemoryRepository) DeleteResponse(ctx context.Context, responseID int64, userID string) error {
+	r.DeleteResponseCalledWith.ResponseID = responseID
+	r.DeleteResponseCalledWith.UserID = userID
+	return r.Err
 }
 
 func (r *InMemoryRepository) ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int, viewerID string) ([]models.Response, error) {

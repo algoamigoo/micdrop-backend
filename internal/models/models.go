@@ -28,6 +28,7 @@ type Prompt struct {
 	PromptUpvotes int       `json:"prompt_upvotes" db:"prompt_upvotes"`
 	ResponseCount int       `json:"response_count" db:"response_count"`
 	ViewerVote    *string   `json:"viewer_vote"    db:"viewer_vote"`
+	Edited        bool      `json:"edited"         db:"edited"`
 	CreatedAt     time.Time `json:"created_at"     db:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"     db:"updated_at"`
 }
@@ -38,7 +39,8 @@ type Response struct {
 	UserID          string    `json:"user_id"          db:"user_id"`
 	Body            string    `json:"body"             db:"body"`
 	ResponseUpvotes int       `json:"response_upvotes" db:"response_upvotes"`
-	ViewerVote      *string   `json:"viewer_vote"     db:"viewer_vote"`
+	ViewerVote      *string   `json:"viewer_vote"      db:"viewer_vote"`
+	Edited          bool      `json:"edited"           db:"edited"`
 	CreatedAt       time.Time `json:"created_at"       db:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"       db:"updated_at"`
 }

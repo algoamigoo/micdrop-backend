@@ -50,7 +50,8 @@ func (r *Repository) SetPromptVote(ctx context.Context, voterID string, postID i
 	// 1. Lock the parent row: serializes votes per item, real 404, author id.
 	var authorID string
 	err = tx.QueryRowxContext(ctx,
-		`SELECT user_id FROM prompts WHERE post_id = $1 FOR UPDATE;`, postID).Scan(&authorID)
+		`SELECT user_id FROM prompts WHERE post_id = $1 AND deleted_at IS NULL FOR UPDATE;`,
+		postID).Scan(&authorID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPromptNotFound
@@ -130,7 +131,8 @@ func (r *Repository) SetResponseVote(ctx context.Context, voterID string, respon
 
 	var authorID string
 	err = tx.QueryRowxContext(ctx,
-		`SELECT user_id FROM responses WHERE response_id = $1 FOR UPDATE;`, responseID).Scan(&authorID)
+		`SELECT user_id FROM responses WHERE response_id = $1 AND deleted_at IS NULL FOR UPDATE;`,
+		responseID).Scan(&authorID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrResponseNotFound

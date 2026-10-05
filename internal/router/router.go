@@ -50,9 +50,13 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 
 			// Prompts (Create requires auth)
 			protected.Post("/prompts", h.CreatePrompt)
+			protected.Patch("/prompts/{postID}", h.UpdatePrompt)
+			protected.Delete("/prompts/{postID}", h.DeletePrompt)
 
 			// Responses (Create requires auth)
 			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
+			protected.Patch("/responses/{responseID}", h.UpdateResponse)
+			protected.Delete("/responses/{responseID}", h.DeleteResponse)
 
 			// Votes (Require auth, idempotent: client sends desired end state)
 			protected.Put("/prompts/{postID}/vote", h.SetPromptVote)

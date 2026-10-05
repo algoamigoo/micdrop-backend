@@ -27,11 +27,15 @@ type Repository interface {
 	ListPrompts(ctx context.Context, sort string, limit, offset int, viewerID string) ([]models.Prompt, error)
 	ListPromptsByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Prompt, error)
 	SetPromptVote(ctx context.Context, voterID string, postID int64, vote string) (*models.Prompt, error)
+	UpdatePrompt(ctx context.Context, postID int64, userID, body string) (*models.Prompt, error)
+	DeletePrompt(ctx context.Context, postID int64, userID string) error
 
 	CreateResponse(ctx context.Context, postID int64, userID, body string) (*models.Response, error)
 	ListResponsesForPrompt(ctx context.Context, postID int64, limit, offset int, viewerID string) ([]models.Response, error)
 	ListResponsesByUser(ctx context.Context, userID string, limit, offset int, viewerID string) ([]models.Response, error)
 	SetResponseVote(ctx context.Context, voterID string, responseID int64, vote string) (*models.Response, error)
+	UpdateResponse(ctx context.Context, responseID int64, userID, body string) (*models.Response, error)
+	DeleteResponse(ctx context.Context, responseID int64, userID string) error
 }
 
 type Handler struct {

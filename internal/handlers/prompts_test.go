@@ -28,6 +28,10 @@ func setupTestRouter(repo *InMemoryRepository) http.Handler {
 		v1.Group(func(protected chi.Router) {
 			protected.Use(middleware.RequireAuth(jwtSecret))
 			protected.Post("/prompts", h.CreatePrompt)
+			protected.Patch("/prompts/{postID}", h.UpdatePrompt)
+			protected.Delete("/prompts/{postID}", h.DeletePrompt)
+			protected.Patch("/responses/{responseID}", h.UpdateResponse)
+			protected.Delete("/responses/{responseID}", h.DeleteResponse)
 			protected.Post("/prompts/{postID}/responses", h.CreateResponse)
 			protected.Put("/prompts/{postID}/vote", h.SetPromptVote)
 			protected.Put("/responses/{responseID}/vote", h.SetResponseVote)
@@ -40,6 +44,8 @@ func setupTestRouter(repo *InMemoryRepository) http.Handler {
 			public.Get("/users/{userID}/prompts", h.ListUserPrompts)
 		})
 		v1.Post("/auth/complete-signup", authH.CompleteSignup)
+		v1.Get("/auth/google/login", authH.GoogleLogin)
+		v1.Get("/auth/google/callback", authH.GoogleCallback)
 	})
 	return r
 }
@@ -222,5 +228,160 @@ func TestCreatePrompt_Success(t *testing.T) {
 	json.NewDecoder(rr.Body).Decode(&resp)
 	if resp["data"].Body != "test" {
 		t.Errorf("unexpected response body")
+	}
+}
+
+func TestUpdatePrompt_Unauthorized(t *testing.T) {
+	rr := postRequest(t, "PATCH", "/api/v1/prompts/1", "", `{"body":"edited"}`)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestUpdatePrompt_Success(t *testing.T) {
+	repo := &InMemoryRepository{Prompt: &models.Prompt{PostID: 1, Body: "edited"}}
+	token := generateTestToken(jwtSecret, "alice", false)
+
+	req := httptest.NewRequest("PATCH", "/api/v1/prompts/1", strings.NewReader(`{"body":"edited"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if repo.UpdatePromptCalledWith.PostID != 1 {
+		t.Errorf("expected post_id 1, got %d", repo.UpdatePromptCalledWith.PostID)
+	}
+	if repo.UpdatePromptCalledWith.UserID != "alice" {
+		t.Errorf("expected the author from the JWT, got %q", repo.UpdatePromptCalledWith.UserID)
+	}
+	if repo.UpdatePromptCalledWith.Body != "edited" {
+		t.Errorf("expected body %q, got %q", "edited", repo.UpdatePromptCalledWith.Body)
+	}
+}
+
+func TestUpdatePrompt_InvalidBody(t *testing.T) {
+	token := generateTestToken(jwtSecret, "alice", false)
+	cases := map[string]string{
+		"empty":    `{"body":""}`,
+		"too long": fmt.Sprintf(`{"body":%q}`, strings.Repeat("a", maxBodyLen+1)),
+		"not json": `{`,
+		"no field": `{}`,
+	}
+	for name, body := range cases {
+		rr := postRequest(t, "PATCH", "/api/v1/prompts/1", token, body)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %d", name, rr.Code)
+		}
+	}
+}
+
+func TestUpdatePrompt_InvalidPostID(t *testing.T) {
+	token := generateTestToken(jwtSecret, "alice", false)
+	rr := postRequest(t, "PATCH", "/api/v1/prompts/abc", token, `{"body":"edited"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for a non-numeric post_id, got %d", rr.Code)
+	}
+}
+
+func TestUpdatePrompt_NotAuthor(t *testing.T) {
+	repo := &InMemoryRepository{Err: repository.ErrNotAuthor}
+	token := generateTestToken(jwtSecret, "mallory", false)
+
+	req := httptest.NewRequest("PATCH", "/api/v1/prompts/1", strings.NewReader(`{"body":"edited"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for a non-author, got %d", rr.Code)
+	}
+}
+
+func TestUpdatePrompt_NotFound(t *testing.T) {
+	repo := &InMemoryRepository{Err: repository.ErrPromptNotFound}
+	token := generateTestToken(jwtSecret, "alice", false)
+
+	req := httptest.NewRequest("PATCH", "/api/v1/prompts/999", strings.NewReader(`{"body":"edited"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestDeletePrompt_Success(t *testing.T) {
+	repo := &InMemoryRepository{}
+	token := generateTestToken(jwtSecret, "alice", false)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/prompts/7", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.Len() != 0 {
+		t.Errorf("expected an empty body, got %q", rr.Body.String())
+	}
+	if repo.DeletePromptCalledWith.PostID != 7 || repo.DeletePromptCalledWith.UserID != "alice" {
+		t.Errorf("unexpected repo args: %+v", repo.DeletePromptCalledWith)
+	}
+}
+
+func TestDeletePrompt_Unauthorized(t *testing.T) {
+	rr := postRequest(t, "DELETE", "/api/v1/prompts/7", "", "")
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestDeletePrompt_NotAuthor(t *testing.T) {
+	repo := &InMemoryRepository{Err: repository.ErrNotAuthor}
+	token := generateTestToken(jwtSecret, "mallory", false)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/prompts/7", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rr.Code)
+	}
+}
+
+func TestDeletePrompt_NotFound(t *testing.T) {
+	repo := &InMemoryRepository{Err: repository.ErrPromptNotFound}
+	token := generateTestToken(jwtSecret, "alice", false)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/prompts/404", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestDeletePrompt_NoEnvelope(t *testing.T) {
+	repo := &InMemoryRepository{}
+	token := generateTestToken(jwtSecret, "alice", false)
+
+	req := httptest.NewRequest("DELETE", "/api/v1/prompts/7", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	setupTestRouter(repo).ServeHTTP(rr, req)
+
+	var payload map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err == nil {
+		t.Errorf("expected no JSON body, got %v", payload)
 	}
 }
