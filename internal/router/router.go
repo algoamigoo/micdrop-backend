@@ -47,6 +47,8 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 
 			protected.Get("/auth/me", authH.GetMe)
 			protected.Patch("/users/me", h.UpdateMe)
+			protected.Put("/users/{userID}/follow", h.FollowUser)
+			protected.Delete("/users/{userID}/follow", h.UnfollowUser)
 
 			// Prompts (Create requires auth)
 			protected.Post("/prompts", h.CreatePrompt)
@@ -70,6 +72,8 @@ func New(repo *repository.Repository, logger *slog.Logger, cfg *config.Config) h
 			public.Get("/users/{userID}", h.GetUser)
 			public.Get("/users/{userID}/prompts", h.ListUserPrompts)
 			public.Get("/users/{userID}/responses", h.ListUserResponses)
+			public.Get("/users/{userID}/followers", h.ListFollowers)
+			public.Get("/users/{userID}/following", h.ListFollowing)
 
 			public.Get("/prompts", h.ListPrompts)
 			public.Get("/prompts/{postID}", h.GetPrompt)

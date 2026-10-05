@@ -21,6 +21,14 @@ type UserStats struct {
 	ResponseCount int `json:"response_count" db:"response_count"`
 }
 
+// FollowCounts is the social context for a profile: how many followers and
+// following the user has, plus whether the viewer is one of the followers.
+type FollowCounts struct {
+	FollowersCount int  `json:"followers_count" db:"followers_count"`
+	FollowingCount int  `json:"following_count" db:"following_count"`
+	IsFollowing    bool `json:"is_following"    db:"is_following"`
+}
+
 type Prompt struct {
 	PostID        int64     `json:"post_id"        db:"post_id"`
 	UserID        string    `json:"user_id"        db:"user_id"`
