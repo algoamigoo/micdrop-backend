@@ -300,6 +300,10 @@ Recommended:
 4. Only `newest` and `top` prompt sorting are implemented.
 5. No rate limiting.
 6. Pre-existing rows have no author auto-vote (only newly created items start at 1).
+7. No notifications at all (deferred by decision; no table exists).
+8. No restore path for soft-deleted content (the rows are kept, nothing exposes them).
+9. Deleting is consequence-free, so delete-and-repost can farm karma (accepted trade-off,
+   see `edit-delete-decisions.md`).
 
 ## 14. Recommended Roadmap
 

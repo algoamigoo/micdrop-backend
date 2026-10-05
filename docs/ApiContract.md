@@ -65,20 +65,28 @@ are ignored (anonymous view), never rejected.
 
 | Endpoint | Method | Auth | Request | Response |
 |---|---|---|---|---|
-| `/auth/google/login` | GET | None (redirect) | — | `307` to Google |
-| `/auth/google/callback` | GET | None (redirect) | Query `code` | `307` to frontend with `?token=` or `?onboarding=` |
+| `/auth/google/login` | GET | None (redirect) | — | `307` to Google, sets the `micdrop_oauth_state` cookie |
+| `/auth/google/callback` | GET | None (redirect) | Query `code`, `state` | `307` to frontend with `?token=` or `?onboarding=` |
 | `/auth/complete-signup` | POST | Onboarding JWT | `{ user_id }` | `200` `{ token, user }` |
 | `/auth/me` | GET | Session JWT | — | `200` User |
 | `/users/me` | PATCH | Session JWT | `{ user_name?, bio?, links? }` | `200` User |
-| `/users/{userID}` | GET | Optional | Path `userID` | `200` `{ user, stats }` |
+| `/users/{userID}` | GET | Optional | Path `userID` | `200` `{ user, stats, follows }` |
 | `/users/{userID}/prompts` | GET | Optional | Query `limit`, `offset` | `200` Prompt[] |
 | `/users/{userID}/responses` | GET | Optional | Query `limit`, `offset` | `200` Response[] |
+| `/users/{userID}/followers` | GET | Optional | Query `limit`, `offset` | `200` User[] |
+| `/users/{userID}/following` | GET | Optional | Query `limit`, `offset` | `200` User[] |
+| `/users/{userID}/follow` | PUT | Session JWT | — | `204` (idempotent) |
+| `/users/{userID}/follow` | DELETE | Session JWT | — | `204` (idempotent) |
 | `/prompts` | POST | Session JWT | `{ body }` | `201` Prompt |
 | `/prompts` | GET | Optional | Query `sort`, `limit`, `offset` | `200` Prompt[] |
 | `/prompts/{postID}` | GET | Optional | Path `postID` | `200` Prompt |
+| `/prompts/{postID}` | PATCH | Session JWT (author) | `{ body }` | `200` Prompt |
+| `/prompts/{postID}` | DELETE | Session JWT (author) | — | `204` |
 | `/prompts/{postID}/vote` | PUT | Session JWT | `{ vote }` | `200` Prompt |
 | `/prompts/{postID}/responses` | POST | Session JWT | `{ body }` | `201` Response |
 | `/prompts/{postID}/responses` | GET | Optional | Query `limit`, `offset` | `200` Response[] |
+| `/responses/{responseID}` | PATCH | Session JWT (author) | `{ body }` | `200` Response |
+| `/responses/{responseID}` | DELETE | Session JWT (author) | — | `204` |
 | `/responses/{responseID}/vote` | PUT | Session JWT | `{ vote }` | `200` Response |
 | `/healthz` | GET | None | None | `200 { "status": "ok" }` |
 
@@ -117,6 +125,7 @@ Clients must treat `null` as "no links".
   "prompt_upvotes": 23,
   "response_count": 45,
   "viewer_vote": "upvote",
+  "edited": false,
   "created_at": "2026-09-20T12:00:00Z",
   "updated_at": "2026-09-20T12:00:00Z"
 }
@@ -125,6 +134,10 @@ Clients must treat `null` as "no links".
 `viewer_vote` is `"upvote"`, `"downvote"`, or `null` (anonymous, or the
 viewer hasn't voted). It is always populated from the server — clients
 must not cache it locally.
+
+`edited` is derived server-side from `updated_at > created_at`: the body has been
+changed since creation. It is `false` for content that was only soft-deleted, because
+deleting does not touch `updated_at`.
 
 > Current implementation does not join `user_name` into Prompt responses. Clients should resolve `user_id` through `/users/{userID}` if needed.
 
@@ -138,6 +151,7 @@ must not cache it locally.
   "body": "Don't worry, I've done this a thousand times... on a simulator.",
   "response_upvotes": 67,
   "viewer_vote": null,
+  "edited": true,
   "created_at": "2026-09-20T13:15:00Z",
   "updated_at": "2026-09-20T13:15:00Z"
 }
@@ -152,11 +166,29 @@ must not cache it locally.
 }
 ```
 
-Returned alongside the user from `GET /users/{userID}` as `{ "user": User, "stats": UserStats }`.
+Returned alongside the user from `GET /users/{userID}` as
+`{ "user": User, "stats": UserStats, "follows": FollowCounts }`.
+
+### FollowCounts
+
+```json
+{
+  "followers_count": 12,
+  "following_count": 4,
+  "is_following": false
+}
+```
+
+`is_following` reflects the caller and is always `false` for anonymous reads.
 
 ## 5. Endpoint Details
 
 ### GET `/auth/google/login`
+
+Sets a `micdrop_oauth_state` cookie (httpOnly, `SameSite=Lax`, 10 minutes) holding a
+256-bit random value and sends the same value to Google as `state`. The callback compares
+the two and clears the cookie, so each login attempt is single-use; a mismatch is a `400`.
+This is what prevents login CSRF.
 
 Redirects (`307`) to Google's consent page.
 
@@ -350,6 +382,58 @@ Errors:
 - `400` invalid `responseID`, invalid body, or invalid `vote` value.
 - `404` response not found.
 
+### PATCH `/prompts/{postID}`
+
+Edit the body of a prompt you authored. Same body rules as creation (non-empty, <= 280
+characters). Votes, counters and `response_count` are untouched by an edit.
+
+Response `200`: updated Prompt.
+
+Errors:
+
+- `400` invalid or over-long `body`
+- `403` not the author
+- `404` no such prompt (or already deleted)
+
+### DELETE `/prompts/{postID}`
+
+Soft-delete a prompt **and all of its responses**. Votes, counters and karma are left
+exactly as they were: the upvotes were earned, and a responder's karma is not the
+prompt author's to revoke. Rows are never removed, so the decision is reversible and
+auditable — see [`edit-delete-decisions.md`](./edit-delete-decisions.md).
+
+The accepted trade-off: a disliked prompt can be deleted to shed its downvotes, and a
+liked one deleted and reposted to farm karma again.
+
+Response `204` empty.
+
+Errors: `403` not the author · `404` no such prompt.
+
+### PATCH `/responses/{responseID}`
+
+Edit the body of a response you authored. Same rules and errors as the prompt variant.
+
+Response `200`: updated Response.
+
+### DELETE `/responses/{responseID}`
+
+Soft-delete a response. Votes and karma are untouched; `response_count` on the parent
+prompt *is* decremented, because it counts visible children rather than scoring anything.
+
+Response `204` empty.
+
+### PUT / DELETE `/users/{userID}/follow`
+
+Idempotent follow / unfollow. Self-follow is a `400`; following twice is fine, and
+unfollowing someone you do not follow still returns `204`.
+
+Response `204` empty.
+
+### GET `/users/{userID}/followers` & `/users/{userID}/following`
+
+Public lists of User, newest follow first. Same pagination rules as the other lists
+(`limit` 1-100, default 20; `offset` >= 0), so `400` on a bad value.
+
 ## 6. Error Status Mapping
 
 | HTTP Status | Condition |
@@ -357,6 +441,7 @@ Errors:
 | `400` | Invalid JSON, missing required field, invalid ID format, invalid `vote` value, invalid profile field |
 | `401` | Missing/invalid token on protected endpoints |
 | `404` | Prompt, response, or user not found |
+| `403` | Authenticated but not the author (edit/delete of someone else's content) |
 | `409` | Username already taken (`POST /auth/complete-signup`) |
 | `500` | Internal server error |
 
@@ -371,3 +456,6 @@ These are not implemented in the current router:
 - `GET /prompts?sort=hot|best|controversial`
 - Paginated responses with `total_count`
 - Error responses with machine-readable `code`
+- Notifications of any kind (deferred; no notifications table exists)
+- Restoring a soft-deleted prompt/response through the API
+- Edit history / "edited by" diffs
